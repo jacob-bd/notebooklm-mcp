@@ -181,6 +181,11 @@ The `f.req` structure:
 | `R7cb6c` | Create Studio Content | See Studio RPCs section |
 | `gArtLc` | Poll Studio Status | `[[2], notebook_id, 'NOT artifact.status = "ARTIFACT_STATUS_SUGGESTED"']` |
 | `V5N4be` | Delete Studio Content | `[[2], "artifact_id"]` |
+| `yyryJe` | Generate Mind Map | See Mind Map RPCs section |
+| `CYK0Xb` | Save Mind Map | See Mind Map RPCs section |
+| `cFji9` | List Mind Maps | `[notebook_id]` |
+| `ciyUvf` | Get Suggested Report Formats | `[[2], notebook_id, [[source_id1], ...]]` |
+| `VfAZjd` | Get Report Suggestions | `[notebook_id, [2]]` |
 
 ### `s0tc2d` - Notebook Update RPC
 
@@ -629,6 +634,244 @@ params = [
    └── V5N4be with artifact_id → permanently removes content
 ```
 
+### Report RPCs
+
+Reports use the same `R7cb6c` RPC with **type code 2** (STUDIO_TYPE_REPORT).
+
+#### Report Request Structure
+```python
+params = [
+    [2],                           # Config
+    notebook_id,                   # Notebook UUID
+    [
+        None, None,
+        2,                         # STUDIO_TYPE_REPORT
+        [[[source_id1]], [[source_id2]], ...],  # Source IDs (nested arrays)
+        None, None, None,
+        [
+            None,
+            [
+                "Briefing Doc",           # Report title/format
+                "Key insights and quotes", # Short description
+                None,
+                [[source_id1], [source_id2], ...],  # Source IDs (simpler format)
+                "en",                      # Language code
+                "Create a comprehensive...",  # Full prompt/instructions
+                None,
+                True                       # Unknown flag
+            ]
+        ]
+    ]
+]
+```
+
+#### Standard Report Formats
+
+| Format | Description | Prompt Style |
+|--------|-------------|--------------|
+| **Briefing Doc** | Key insights and important quotes | Comprehensive briefing with Executive Summary |
+| **Study Guide** | Short-answer quiz, essay questions, glossary | Educational focus with test prep materials |
+| **Blog Post** | Insightful takeaways in readable article format | Engaging, accessible writing style |
+| **Create Your Own** | Custom format with user-defined structure | User provides custom prompt |
+
+#### `ciyUvf` - Get Suggested Report Formats
+
+Returns AI-generated suggested report topics based on notebook sources.
+
+```python
+# Request params
+params = [[2], notebook_id, [[source_id1], [source_id2], ...]]
+
+# Response: Array of suggested reports with full prompts
+[
+    [
+        "Strategy Briefing",           # Title
+        "An analysis of...",           # Description
+        None,
+        [[source_ids]],                # Sources
+        "Synthesize the provided...",  # Full AI prompt
+        2                              # Audience level (1=beginner, 2=advanced)
+    ],
+    # ... more suggestions
+]
+```
+
+#### `VfAZjd` - Get Report Suggestions (Summary)
+
+Returns notebook summary and suggested report topics.
+
+```python
+# Request params
+[notebook_id, [2]]
+
+# Response includes summary and suggested topics
+```
+
+### Flashcard RPCs
+
+Flashcards use the same `R7cb6c` RPC with **type code 4** (STUDIO_TYPE_FLASHCARDS).
+
+#### Flashcard Request Structure
+```python
+params = [
+    [2],                           # Config
+    notebook_id,                   # Notebook UUID
+    [
+        None, None,
+        4,                         # STUDIO_TYPE_FLASHCARDS
+        [[[source_id1]], [[source_id2]], ...],  # Source IDs (nested arrays)
+        None, None, None, None, None,  # 5 nulls (positions 4-8)
+        [
+            None,
+            [
+                1,                     # Unknown (possibly default count)
+                None, None, None, None, None,
+                [difficulty, card_count]  # [difficulty_code, card_count_code]
+            ]
+        ]
+    ]
+]
+```
+
+#### Flashcard Options
+
+| Option | Values |
+|--------|--------|
+| **Difficulty** | 1=Easy, 2=Medium, 3=Hard (suspected) |
+| **Card Count** | 2=Default (suspected) |
+
+**Note:** Flashcard options are still being investigated. The basic creation works with default settings.
+
+### Mind Map RPCs
+
+Mind Maps use a **two-step process** with separate Generate and Save RPCs.
+
+#### Step 1: `yyryJe` - Generate Mind Map
+
+Generates the mind map JSON from sources.
+
+```python
+# Request params
+params = [
+    [[[source_id1]], [[source_id2]], ...],  # Source IDs (nested arrays)
+    None, None, None, None,
+    ["interactive_mindmap", [["[CONTEXT]", ""]], ""],  # Type identifier
+    None,
+    [2, None, [1]]  # Config
+]
+
+# Response
+[
+    json_mind_map_string,  # Hierarchical JSON with name/children structure
+    None,
+    [generation_id1, generation_id2, generation_number]
+]
+```
+
+#### Step 2: `CYK0Xb` - Save Mind Map
+
+Saves the generated mind map to the notebook.
+
+```python
+# Request params
+params = [
+    notebook_id,
+    json_mind_map_string,  # The full JSON structure from step 1
+    [2, None, None, 5, [[source_id1], [source_id2], ...]],  # Metadata with sources
+    None,
+    "Mind Map Title"  # Display title
+]
+
+# Response
+[
+    mind_map_id,           # UUID for the saved mind map
+    json_mind_map_string,  # The saved JSON structure
+    [2, version_id, [timestamp, nanos], 5, [[source_ids]]],  # Metadata
+    None,
+    "Generated Title"      # AI-generated title
+]
+```
+
+#### `cFji9` - List Mind Maps
+
+Retrieves all existing mind maps for a notebook.
+
+```python
+# Request params
+[notebook_id]
+
+# Response
+[
+    [
+        [mind_map_id, [
+            mind_map_id,
+            json_mind_map_string,
+            [2, version_id, [timestamp, nanos], 5, [[source_ids]]],
+            None,
+            "Mind Map Title"
+        ]],
+        # ... more mind maps
+    ],
+    [timestamp, nanos]  # Last updated
+]
+```
+
+#### Mind Map JSON Structure
+
+```json
+{
+  "name": "Root Topic",
+  "children": [
+    {
+      "name": "Category 1",
+      "children": [
+        { "name": "Subcategory 1.1" },
+        { "name": "Subcategory 1.2" }
+      ]
+    },
+    {
+      "name": "Category 2",
+      "children": [
+        { "name": "Subcategory 2.1" },
+        {
+          "name": "Subcategory 2.2",
+          "children": [
+            { "name": "Leaf Node" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Mind Map Flow Summary
+
+```
+1. Generate Mind Map
+   └── yyryJe with source IDs → returns JSON structure
+
+2. Save Mind Map
+   └── CYK0Xb with notebook_id, JSON, title → returns saved mind map with ID
+
+3. List Mind Maps (optional)
+   └── cFji9 with notebook_id → returns all mind maps
+```
+
+### Studio Type Codes Summary
+
+| Type Code | Feature | RPC |
+|-----------|---------|-----|
+| 1 | Audio Overview | `R7cb6c` |
+| 2 | Report | `R7cb6c` |
+| 3 | Video Overview | `R7cb6c` |
+| 4 | Flashcards | `R7cb6c` |
+| 5 | Quiz | `R7cb6c` (not yet documented) |
+| 6 | Data Table | `R7cb6c` (not yet documented) |
+| 7 | Infographic | `R7cb6c` |
+| 8 | Slide Deck | `R7cb6c` |
+| N/A | Mind Map | `yyryJe` + `CYK0Xb` (separate RPCs) |
+
 ### Key Findings
 
 1. **Filtering is client-side**: The `wXbhsf` RPC returns ALL notebooks. "My notebooks" vs "Shared with me" filtering happens in the browser.
@@ -668,6 +911,10 @@ params = [
 | `video_overview_create` | Generate video overviews (REQUIRES confirmation) |
 | `infographic_create` | Generate infographics (REQUIRES confirmation) |
 | `slide_deck_create` | Generate slide decks (REQUIRES confirmation) |
+| `report_create` | Generate reports - Briefing Doc, Study Guide, Blog Post, Custom (REQUIRES confirmation) |
+| `flashcards_create` | Generate flashcards with difficulty options (REQUIRES confirmation) |
+| `mind_map_create` | Generate and save mind maps (REQUIRES confirmation) |
+| `mind_map_list` | List all mind maps in a notebook |
 | `studio_status` | Check studio artifact generation status |
 | `studio_delete` | Delete studio artifacts (REQUIRES confirmation) |
 | `save_auth_tokens` | Save tokens extracted via Chrome DevTools MCP |
@@ -679,6 +926,9 @@ params = [
 - `video_overview_create` requires `confirm=True` - show settings and get user approval first
 - `infographic_create` requires `confirm=True` - show settings and get user approval first
 - `slide_deck_create` requires `confirm=True` - show settings and get user approval first
+- `report_create` requires `confirm=True` - show settings and get user approval first
+- `flashcards_create` requires `confirm=True` - show settings and get user approval first
+- `mind_map_create` requires `confirm=True` - show settings and get user approval first
 - `studio_delete` requires `confirm=True` - list artifacts first via `studio_status`, deletion is IRREVERSIBLE
 
 ## Features NOT Yet Implemented
@@ -687,13 +937,13 @@ Consumer NotebookLM has many more features than Enterprise. To explore:
 
 - [x] **Audio Overviews** - Generate podcast-style discussions (tools: `audio_overview_create`, `studio_status`, `studio_delete`)
 - [x] **Video Overviews** - Generate explainer videos (tools: `video_overview_create`, `studio_status`, `studio_delete`)
-- [ ] **Mind Maps** - Visual knowledge maps
-- [ ] **Flashcards** - Study cards from sources
+- [x] **Mind Maps** - Visual knowledge maps (tools: `mind_map_create`, `mind_map_list`)
+- [x] **Flashcards** - Study cards from sources (tools: `flashcards_create`, `studio_status`)
 - [ ] **Quizzes** - Interactive quizzes
 - [x] **Infographics** - Visual summaries (tools: `infographic_create`, `studio_status`, `studio_delete`)
 - [x] **Slide Decks** - Presentation generation (tools: `slide_deck_create`, `studio_status`, `studio_delete`)
 - [ ] **Data Tables** - Structured data extraction
-- [ ] **Reports** - Long-form reports
+- [x] **Reports** - Long-form reports (tools: `report_create`, `studio_status`)
 - [ ] **Notes** - Save chat responses as notes
 - [x] **Fast Research (Web)** - Quick web source discovery (tools: `research_start`, `research_status`, `research_import`)
 - [x] **Fast Research (Drive)** - Quick Google Drive source discovery (tools: `research_start`, `research_status`, `research_import`)

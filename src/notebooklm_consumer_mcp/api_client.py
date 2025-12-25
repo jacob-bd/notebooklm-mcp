@@ -205,9 +205,30 @@ class ConsumerNotebookLMClient:
     VIDEO_STYLE_HERITAGE = 9
     VIDEO_STYLE_PAPER_CRAFT = 10
 
-    # Infographic and Slide Deck types (also created via RPC_CREATE_STUDIO)
+    # Additional Studio types (also created via RPC_CREATE_STUDIO)
+    STUDIO_TYPE_REPORT = 2
+    STUDIO_TYPE_FLASHCARDS = 4
     STUDIO_TYPE_INFOGRAPHIC = 7
     STUDIO_TYPE_SLIDE_DECK = 8
+
+    # Mind Map RPCs (separate from R7cb6c)
+    RPC_GENERATE_MIND_MAP = "yyryJe"  # Generate mind map JSON from sources
+    RPC_SAVE_MIND_MAP = "CYK0Xb"      # Save generated mind map to notebook
+    RPC_LIST_MIND_MAPS = "cFji9"       # List existing mind maps
+
+    # Report format constants
+    REPORT_FORMAT_BRIEFING_DOC = "Briefing Doc"
+    REPORT_FORMAT_STUDY_GUIDE = "Study Guide"
+    REPORT_FORMAT_BLOG_POST = "Blog Post"
+    REPORT_FORMAT_CUSTOM = "Create Your Own"
+
+    # Flashcard difficulty codes (suspected values)
+    FLASHCARD_DIFFICULTY_EASY = 1
+    FLASHCARD_DIFFICULTY_MEDIUM = 2
+    FLASHCARD_DIFFICULTY_HARD = 3
+
+    # Flashcard count code
+    FLASHCARD_COUNT_DEFAULT = 2
 
     # Infographic orientation codes
     INFOGRAPHIC_ORIENTATION_LANDSCAPE = 1
@@ -1682,6 +1703,27 @@ class ConsumerNotebookLMClient:
                         elif len(slide_deck_options) > 3 and isinstance(slide_deck_options[3], str):
                             slide_deck_url = slide_deck_options[3]
 
+                # Report artifacts have content at position 7
+                report_content = None
+                if type_code == self.STUDIO_TYPE_REPORT and len(artifact_data) > 7:
+                    report_options = artifact_data[7]
+                    if isinstance(report_options, list) and len(report_options) > 1:
+                        # Content is nested in the options
+                        content_data = report_options[1] if isinstance(report_options[1], list) else None
+                        if content_data and len(content_data) > 0:
+                            # Report content is typically markdown text
+                            report_content = content_data[0] if isinstance(content_data[0], str) else None
+
+                # Flashcard artifacts have cards data at position 9
+                flashcard_count = None
+                if type_code == self.STUDIO_TYPE_FLASHCARDS and len(artifact_data) > 9:
+                    flashcard_options = artifact_data[9]
+                    if isinstance(flashcard_options, list) and len(flashcard_options) > 1:
+                        # Count cards in the data
+                        cards_data = flashcard_options[1] if isinstance(flashcard_options[1], list) else None
+                        if cards_data:
+                            flashcard_count = len(cards_data) if isinstance(cards_data, list) else None
+
                 # Extract created_at timestamp
                 # Position varies by type but often at position 10, 15, or similar
                 created_at = None
@@ -1698,7 +1740,9 @@ class ConsumerNotebookLMClient:
                 # Map type codes to type names
                 type_map = {
                     self.STUDIO_TYPE_AUDIO: "audio",
+                    self.STUDIO_TYPE_REPORT: "report",
                     self.STUDIO_TYPE_VIDEO: "video",
+                    self.STUDIO_TYPE_FLASHCARDS: "flashcards",
                     self.STUDIO_TYPE_INFOGRAPHIC: "infographic",
                     self.STUDIO_TYPE_SLIDE_DECK: "slide_deck",
                 }
@@ -1715,6 +1759,8 @@ class ConsumerNotebookLMClient:
                     "video_url": video_url,
                     "infographic_url": infographic_url,
                     "slide_deck_url": slide_deck_url,
+                    "report_content": report_content,
+                    "flashcard_count": flashcard_count,
                     "duration_seconds": duration_seconds,
                 })
 
@@ -1897,6 +1943,412 @@ class ConsumerNotebookLMClient:
             }
 
         return None
+
+    def create_report(
+        self,
+        notebook_id: str,
+        source_ids: list[str],
+        report_format: str = "Briefing Doc",
+        custom_prompt: str = "",
+        language: str = "en",
+    ) -> dict | None:
+        """Create a Report from notebook sources.
+
+        Args:
+            notebook_id: The notebook UUID
+            source_ids: List of source UUIDs to include
+            report_format: Report format - one of:
+                - "Briefing Doc": Key insights and important quotes
+                - "Study Guide": Short-answer quiz, essay questions, glossary
+                - "Blog Post": Insightful takeaways in readable article format
+                - "Create Your Own": Custom format with user-defined prompt
+            custom_prompt: Custom prompt when report_format="Create Your Own"
+            language: BCP-47 language code (e.g., "en", "es", "fr")
+
+        Returns:
+            Dict with artifact_id and status, or None on failure
+        """
+        client = self._get_client()
+
+        # Build source IDs in the nested format: [[[id1]], [[id2]], ...]
+        sources_nested = [[[sid]] for sid in source_ids]
+
+        # Build source IDs in the simpler format: [[id1], [id2], ...]
+        sources_simple = [[sid] for sid in source_ids]
+
+        # Map report format to title, description, and prompt
+        format_configs = {
+            "Briefing Doc": {
+                "title": "Briefing Doc",
+                "description": "Key insights and important quotes",
+                "prompt": (
+                    "Create a comprehensive briefing document that includes an "
+                    "Executive Summary, detailed analysis of key themes, important "
+                    "quotes with context, and actionable insights."
+                ),
+            },
+            "Study Guide": {
+                "title": "Study Guide",
+                "description": "Short-answer quiz, essay questions, glossary",
+                "prompt": (
+                    "Create a comprehensive study guide that includes key concepts, "
+                    "short-answer practice questions, essay prompts for deeper "
+                    "exploration, and a glossary of important terms."
+                ),
+            },
+            "Blog Post": {
+                "title": "Blog Post",
+                "description": "Insightful takeaways in readable article format",
+                "prompt": (
+                    "Write an engaging blog post that presents the key insights "
+                    "in an accessible, reader-friendly format. Include an attention-"
+                    "grabbing introduction, well-organized sections, and a compelling "
+                    "conclusion with takeaways."
+                ),
+            },
+            "Create Your Own": {
+                "title": "Custom Report",
+                "description": "Custom format",
+                "prompt": custom_prompt or "Create a report based on the provided sources.",
+            },
+        }
+
+        if report_format not in format_configs:
+            raise ValueError(
+                f"Invalid report_format: {report_format}. "
+                f"Must be one of: {list(format_configs.keys())}"
+            )
+
+        config = format_configs[report_format]
+
+        # Build the report options structure
+        # Options at position 7: [null, [title, desc, null, sources, lang, prompt, null, True]]
+        report_options = [
+            None,
+            [
+                config["title"],
+                config["description"],
+                None,
+                sources_simple,
+                language,
+                config["prompt"],
+                None,
+                True
+            ]
+        ]
+
+        # Build the content array
+        # Structure: [null, null, 2, [source_ids], null, null, null, [report_options]]
+        content = [
+            None, None,
+            self.STUDIO_TYPE_REPORT,
+            sources_nested,
+            None, None, None,
+            report_options
+        ]
+
+        # Build the full params
+        params = [
+            [2],
+            notebook_id,
+            content
+        ]
+
+        body = self._build_request_body(self.RPC_CREATE_STUDIO, params)
+        url = self._build_url(self.RPC_CREATE_STUDIO, f"/notebook/{notebook_id}")
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_CREATE_STUDIO)
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Response: [[artifact_id, title, type, sources, status, ...]]
+            artifact_data = result[0]
+            artifact_id = artifact_data[0] if isinstance(artifact_data, list) and len(artifact_data) > 0 else None
+            status_code = artifact_data[4] if isinstance(artifact_data, list) and len(artifact_data) > 4 else None
+
+            return {
+                "artifact_id": artifact_id,
+                "notebook_id": notebook_id,
+                "type": "report",
+                "status": "in_progress" if status_code == 1 else "completed" if status_code == 3 else "unknown",
+                "format": report_format,
+                "language": language,
+            }
+
+        return None
+
+    def create_flashcards(
+        self,
+        notebook_id: str,
+        source_ids: list[str],
+        difficulty: str = "medium",
+        card_count: str = "default",
+    ) -> dict | None:
+        """Create Flashcards from notebook sources.
+
+        Args:
+            notebook_id: The notebook UUID
+            source_ids: List of source UUIDs to include
+            difficulty: Difficulty level - "easy", "medium", or "hard"
+            card_count: Card count preset - "default" (uses default count)
+
+        Returns:
+            Dict with artifact_id and status, or None on failure
+        """
+        client = self._get_client()
+
+        # Build source IDs in the nested format: [[[id1]], [[id2]], ...]
+        sources_nested = [[[sid]] for sid in source_ids]
+
+        # Map difficulty string to code
+        difficulty_map = {
+            "easy": self.FLASHCARD_DIFFICULTY_EASY,
+            "medium": self.FLASHCARD_DIFFICULTY_MEDIUM,
+            "hard": self.FLASHCARD_DIFFICULTY_HARD,
+        }
+        if difficulty.lower() not in difficulty_map:
+            raise ValueError(f"Invalid difficulty: {difficulty}. Must be one of: {list(difficulty_map.keys())}")
+        difficulty_code = difficulty_map[difficulty.lower()]
+
+        # Card count code (default = 2)
+        count_code = self.FLASHCARD_COUNT_DEFAULT
+
+        # Build the flashcard options structure
+        # Options at position 9: [null, [1, null*5, [difficulty, card_count]]]
+        flashcard_options = [
+            None,
+            [
+                1,  # Unknown (possibly default count base)
+                None, None, None, None, None,
+                [difficulty_code, count_code]
+            ]
+        ]
+
+        # Build the content array
+        # Structure: [null, null, 4, [source_ids], null*5, [flashcard_options]]
+        content = [
+            None, None,
+            self.STUDIO_TYPE_FLASHCARDS,
+            sources_nested,
+            None, None, None, None, None,  # 5 nulls (positions 4-8)
+            flashcard_options  # position 9
+        ]
+
+        # Build the full params
+        params = [
+            [2],
+            notebook_id,
+            content
+        ]
+
+        body = self._build_request_body(self.RPC_CREATE_STUDIO, params)
+        url = self._build_url(self.RPC_CREATE_STUDIO, f"/notebook/{notebook_id}")
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_CREATE_STUDIO)
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Response: [[artifact_id, title, type, sources, status, ...]]
+            artifact_data = result[0]
+            artifact_id = artifact_data[0] if isinstance(artifact_data, list) and len(artifact_data) > 0 else None
+            status_code = artifact_data[4] if isinstance(artifact_data, list) and len(artifact_data) > 4 else None
+
+            return {
+                "artifact_id": artifact_id,
+                "notebook_id": notebook_id,
+                "type": "flashcards",
+                "status": "in_progress" if status_code == 1 else "completed" if status_code == 3 else "unknown",
+                "difficulty": difficulty.lower(),
+            }
+
+        return None
+
+    def generate_mind_map(
+        self,
+        source_ids: list[str],
+    ) -> dict | None:
+        """Generate a Mind Map JSON from sources.
+
+        This is step 1 of 2 for creating a mind map. After generation,
+        use save_mind_map() to save it to a notebook.
+
+        Args:
+            source_ids: List of source UUIDs to include
+
+        Returns:
+            Dict with mind_map_json and generation_id, or None on failure
+        """
+        client = self._get_client()
+
+        # Build source IDs in the nested format: [[[id1]], [[id2]], ...]
+        sources_nested = [[[sid]] for sid in source_ids]
+
+        # Build the params
+        # Structure: [sources, null*4, ["interactive_mindmap", [["[CONTEXT]", ""]], ""], null, [2, null, [1]]]
+        params = [
+            sources_nested,
+            None, None, None, None,
+            ["interactive_mindmap", [["[CONTEXT]", ""]], ""],
+            None,
+            [2, None, [1]]
+        ]
+
+        body = self._build_request_body(self.RPC_GENERATE_MIND_MAP, params)
+        url = self._build_url(self.RPC_GENERATE_MIND_MAP)
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_GENERATE_MIND_MAP)
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Response is nested: [[json_string, null, [gen_ids]]]
+            # So result[0] is [json_string, null, [gen_ids]]
+            inner = result[0] if isinstance(result[0], list) else result
+
+            mind_map_json = inner[0] if isinstance(inner[0], str) else None
+            generation_info = inner[2] if len(inner) > 2 else None
+
+            generation_id = None
+            if isinstance(generation_info, list) and len(generation_info) > 0:
+                generation_id = generation_info[0]
+
+            return {
+                "mind_map_json": mind_map_json,
+                "generation_id": generation_id,
+                "source_ids": source_ids,
+            }
+
+        return None
+
+    def save_mind_map(
+        self,
+        notebook_id: str,
+        mind_map_json: str,
+        source_ids: list[str],
+        title: str = "Mind Map",
+    ) -> dict | None:
+        """Save a generated Mind Map to a notebook.
+
+        This is step 2 of 2 for creating a mind map. First use
+        generate_mind_map() to create the JSON structure.
+
+        Args:
+            notebook_id: The notebook UUID
+            mind_map_json: The JSON string from generate_mind_map()
+            source_ids: List of source UUIDs used to generate the map
+            title: Display title for the mind map
+
+        Returns:
+            Dict with mind_map_id and saved info, or None on failure
+        """
+        client = self._get_client()
+
+        # Build source IDs in the simpler format: [[id1], [id2], ...]
+        sources_simple = [[sid] for sid in source_ids]
+
+        # Build the metadata structure
+        # [2, null, null, 5, [[source_id1], [source_id2], ...]]
+        metadata = [2, None, None, 5, sources_simple]
+
+        # Build the params
+        # [notebook_id, json_string, metadata, null, title]
+        params = [
+            notebook_id,
+            mind_map_json,
+            metadata,
+            None,
+            title
+        ]
+
+        body = self._build_request_body(self.RPC_SAVE_MIND_MAP, params)
+        url = self._build_url(self.RPC_SAVE_MIND_MAP, f"/notebook/{notebook_id}")
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_SAVE_MIND_MAP)
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Response is nested: [[mind_map_id, json, metadata, null, title]]
+            inner = result[0] if isinstance(result[0], list) else result
+
+            mind_map_id = inner[0] if len(inner) > 0 else None
+            saved_json = inner[1] if len(inner) > 1 else None
+            saved_title = inner[4] if len(inner) > 4 else title
+
+            return {
+                "mind_map_id": mind_map_id,
+                "notebook_id": notebook_id,
+                "title": saved_title,
+                "mind_map_json": saved_json,
+            }
+
+        return None
+
+    def list_mind_maps(self, notebook_id: str) -> list[dict]:
+        """List all Mind Maps in a notebook.
+
+        Args:
+            notebook_id: The notebook UUID
+
+        Returns:
+            List of mind map dicts with id, title, and json
+        """
+        client = self._get_client()
+
+        # Params: [notebook_id]
+        params = [notebook_id]
+
+        body = self._build_request_body(self.RPC_LIST_MIND_MAPS, params)
+        url = self._build_url(self.RPC_LIST_MIND_MAPS, f"/notebook/{notebook_id}")
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_LIST_MIND_MAPS)
+
+        mind_maps = []
+        if result and isinstance(result, list) and len(result) > 0:
+            # Response: [[[mind_map_id, [details]], ...], [timestamp]]
+            mind_map_list = result[0] if isinstance(result[0], list) else []
+
+            for mind_map_data in mind_map_list:
+                if not isinstance(mind_map_data, list) or len(mind_map_data) < 2:
+                    continue
+
+                mind_map_id = mind_map_data[0]
+                details = mind_map_data[1] if len(mind_map_data) > 1 else []
+
+                if isinstance(details, list) and len(details) >= 5:
+                    # Details: [id, json, metadata, null, title]
+                    mind_map_json = details[1] if len(details) > 1 else None
+                    title = details[4] if len(details) > 4 else "Mind Map"
+                    metadata = details[2] if len(details) > 2 else []
+
+                    # Extract created_at from metadata
+                    created_at = None
+                    if isinstance(metadata, list) and len(metadata) > 2:
+                        ts = metadata[2]
+                        created_at = parse_timestamp(ts)
+
+                    mind_maps.append({
+                        "mind_map_id": mind_map_id,
+                        "title": title,
+                        "mind_map_json": mind_map_json,
+                        "created_at": created_at,
+                    })
+
+        return mind_maps
 
     @staticmethod
     def _get_audio_format_name(format_code: int) -> str:

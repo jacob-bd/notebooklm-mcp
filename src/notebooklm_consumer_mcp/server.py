@@ -1467,6 +1467,266 @@ def slide_deck_create(
         return {"status": "error", "error": str(e)}
 
 
+@mcp.tool()
+def report_create(
+    notebook_id: str,
+    source_ids: list[str] | None = None,
+    report_format: str = "Briefing Doc",
+    custom_prompt: str = "",
+    language: str = "en",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Generate a report from notebook sources.
+
+    Generation takes a few minutes. Use studio_status to check progress.
+
+    IMPORTANT: Before calling this tool, you MUST:
+    1. Show the user the settings (report_format, language, custom_prompt)
+    2. Ask the user to confirm they want to proceed
+    3. Only set confirm=True after user approval
+
+    Args:
+        notebook_id: The notebook UUID
+        source_ids: Optional list of source IDs to include (default: all sources)
+        report_format: Report format - one of:
+            - "Briefing Doc": Key insights and important quotes (default)
+            - "Study Guide": Short-answer quiz, essay questions, glossary
+            - "Blog Post": Insightful takeaways in readable article format
+            - "Create Your Own": Custom format with user-defined prompt
+        custom_prompt: Custom prompt when report_format="Create Your Own"
+        language: BCP-47 language code (e.g., "en", "es", "fr", "de", "ja")
+        confirm: Must be True to proceed. Show settings and get user confirmation first.
+
+    Returns:
+        Dictionary with artifact_id and status. Call studio_status to check progress.
+    """
+    if not confirm:
+        return {
+            "status": "pending_confirmation",
+            "message": "Please confirm these settings before creating the report:",
+            "settings": {
+                "notebook_id": notebook_id,
+                "report_format": report_format,
+                "language": language,
+                "custom_prompt": custom_prompt or "(none)",
+                "source_ids": source_ids or "all sources",
+            },
+            "note": "Set confirm=True after user approves these settings.",
+        }
+
+    try:
+        client = get_client()
+
+        # Get source IDs if not provided
+        if not source_ids:
+            sources = client.get_notebook_sources_with_types(notebook_id)
+            source_ids = [s["id"] for s in sources if s.get("id")]
+
+        result = client.create_report(
+            notebook_id=notebook_id,
+            source_ids=source_ids,
+            report_format=report_format,
+            custom_prompt=custom_prompt,
+            language=language,
+        )
+
+        if result:
+            return {
+                "status": "success",
+                "artifact_id": result["artifact_id"],
+                "type": "report",
+                "format": result["format"],
+                "language": result["language"],
+                "generation_status": result["status"],
+                "message": "Report generation started. Use studio_status to check progress.",
+                "notebook_url": f"https://notebooklm.google.com/notebook/{notebook_id}",
+            }
+        return {"status": "error", "error": "Failed to create report"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def flashcards_create(
+    notebook_id: str,
+    source_ids: list[str] | None = None,
+    difficulty: str = "medium",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Generate flashcards from notebook sources.
+
+    Generation takes a few minutes. Use studio_status to check progress.
+
+    IMPORTANT: Before calling this tool, you MUST:
+    1. Show the user the settings (difficulty)
+    2. Ask the user to confirm they want to proceed
+    3. Only set confirm=True after user approval
+
+    Args:
+        notebook_id: The notebook UUID
+        source_ids: Optional list of source IDs to include (default: all sources)
+        difficulty: Difficulty level - "easy", "medium" (default), or "hard"
+        confirm: Must be True to proceed. Show settings and get user confirmation first.
+
+    Returns:
+        Dictionary with artifact_id and status. Call studio_status to check progress.
+    """
+    if not confirm:
+        return {
+            "status": "pending_confirmation",
+            "message": "Please confirm these settings before creating flashcards:",
+            "settings": {
+                "notebook_id": notebook_id,
+                "difficulty": difficulty,
+                "source_ids": source_ids or "all sources",
+            },
+            "note": "Set confirm=True after user approves these settings.",
+        }
+
+    try:
+        client = get_client()
+
+        # Get source IDs if not provided
+        if not source_ids:
+            sources = client.get_notebook_sources_with_types(notebook_id)
+            source_ids = [s["id"] for s in sources if s.get("id")]
+
+        result = client.create_flashcards(
+            notebook_id=notebook_id,
+            source_ids=source_ids,
+            difficulty=difficulty,
+        )
+
+        if result:
+            return {
+                "status": "success",
+                "artifact_id": result["artifact_id"],
+                "type": "flashcards",
+                "difficulty": result["difficulty"],
+                "generation_status": result["status"],
+                "message": "Flashcards generation started. Use studio_status to check progress.",
+                "notebook_url": f"https://notebooklm.google.com/notebook/{notebook_id}",
+            }
+        return {"status": "error", "error": "Failed to create flashcards"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def mind_map_create(
+    notebook_id: str,
+    source_ids: list[str] | None = None,
+    title: str = "Mind Map",
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Generate and save a mind map from notebook sources.
+
+    This tool generates a visual mind map from the sources and saves it to the notebook.
+    Mind maps are generated immediately (not async like audio/video).
+
+    IMPORTANT: Before calling this tool, you MUST:
+    1. Show the user the settings (title, sources)
+    2. Ask the user to confirm they want to proceed
+    3. Only set confirm=True after user approval
+
+    Args:
+        notebook_id: The notebook UUID
+        source_ids: Optional list of source IDs to include (default: all sources)
+        title: Display title for the mind map
+        confirm: Must be True to proceed. Show settings and get user confirmation first.
+
+    Returns:
+        Dictionary with mind_map_id and the generated mind map structure.
+    """
+    if not confirm:
+        return {
+            "status": "pending_confirmation",
+            "message": "Please confirm these settings before creating the mind map:",
+            "settings": {
+                "notebook_id": notebook_id,
+                "title": title,
+                "source_ids": source_ids or "all sources",
+            },
+            "note": "Set confirm=True after user approves these settings.",
+        }
+
+    try:
+        client = get_client()
+
+        # Get source IDs if not provided
+        if not source_ids:
+            sources = client.get_notebook_sources_with_types(notebook_id)
+            source_ids = [s["id"] for s in sources if s.get("id")]
+
+        # Step 1: Generate the mind map
+        gen_result = client.generate_mind_map(source_ids=source_ids)
+        if not gen_result or not gen_result.get("mind_map_json"):
+            return {"status": "error", "error": "Failed to generate mind map"}
+
+        # Step 2: Save the mind map to the notebook
+        save_result = client.save_mind_map(
+            notebook_id=notebook_id,
+            mind_map_json=gen_result["mind_map_json"],
+            source_ids=source_ids,
+            title=title,
+        )
+
+        if save_result:
+            # Parse the JSON to get structure info
+            import json
+            try:
+                mind_map_data = json.loads(save_result.get("mind_map_json", "{}"))
+                root_name = mind_map_data.get("name", "Unknown")
+                children_count = len(mind_map_data.get("children", []))
+            except json.JSONDecodeError:
+                root_name = "Unknown"
+                children_count = 0
+
+            return {
+                "status": "success",
+                "mind_map_id": save_result["mind_map_id"],
+                "notebook_id": notebook_id,
+                "title": save_result.get("title", title),
+                "root_name": root_name,
+                "children_count": children_count,
+                "message": "Mind map created and saved successfully.",
+                "notebook_url": f"https://notebooklm.google.com/notebook/{notebook_id}",
+            }
+        return {"status": "error", "error": "Failed to save mind map"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def mind_map_list(notebook_id: str) -> dict[str, Any]:
+    """List all mind maps in a notebook.
+
+    Args:
+        notebook_id: The notebook UUID
+
+    Returns:
+        Dictionary with list of mind maps, each containing id, title, and created_at.
+    """
+    try:
+        client = get_client()
+        mind_maps = client.list_mind_maps(notebook_id)
+
+        return {
+            "status": "success",
+            "count": len(mind_maps),
+            "mind_maps": [
+                {
+                    "mind_map_id": mm.get("mind_map_id"),
+                    "title": mm.get("title", "Untitled"),
+                    "created_at": mm.get("created_at"),
+                }
+                for mm in mind_maps
+            ],
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # Essential cookies for NotebookLM API authentication
 # Only these are needed - no need to save all 20+ cookies from the browser
 ESSENTIAL_COOKIES = [
