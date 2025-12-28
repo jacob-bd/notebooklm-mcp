@@ -440,6 +440,105 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
     return tokens
 
 
+def run_manual_cookie_entry() -> AuthTokens | None:
+    """Prompt user to paste cookies manually and save them.
+
+    This is a simpler alternative to the Chrome DevTools extraction
+    that doesn't require Chrome remote debugging.
+    """
+    print("NotebookLM Consumer - Manual Cookie Entry")
+    print("=" * 50)
+    print()
+    print("This tool will guide you through saving your NotebookLM cookies.")
+    print()
+    print("Step 1: Extract cookies from Chrome DevTools")
+    print("  1. Go to https://notebooklm.google.com and log in")
+    print("  2. Press F12 to open DevTools > Network tab")
+    print("  3. Type 'batchexecute' in the filter box")
+    print("  4. Click any notebook to trigger a request")
+    print("  5. Click on a 'batchexecute' request")
+    print("  6. In Headers tab, find 'cookie:' under Request Headers")
+    print("  7. Right-click the cookie VALUE and select 'Copy value'")
+    print()
+    print("Step 2: Paste your cookies below")
+    print("-" * 50)
+    print()
+    print("Paste your cookie string and press Enter:")
+    print("(It should look like: SID=xxx; HSID=xxx; SSID=xxx; ...)")
+    print()
+
+    # Read cookie string - input() doesn't truncate, but be explicit
+    try:
+        cookie_string = input("> ").strip()
+    except EOFError:
+        print("\nNo input received.")
+        return None
+
+    if not cookie_string:
+        print("\nERROR: No cookie string provided.")
+        return None
+
+    print()
+    print("Validating cookies...")
+
+    # Parse cookies from header format (key=value; key=value; ...)
+    cookies = {}
+    for cookie in cookie_string.split(";"):
+        cookie = cookie.strip()
+        if "=" in cookie:
+            key, value = cookie.split("=", 1)
+            cookies[key.strip()] = value.strip()
+
+    if not cookies:
+        print("\nERROR: Could not parse any cookies from input.")
+        print("Make sure you copied the cookie VALUE, not the header name.")
+        print()
+        print("Expected format: SID=xxx; HSID=xxx; SSID=xxx; ...")
+        return None
+
+    # Validate required cookies
+    if not validate_cookies(cookies):
+        print("\nWARNING: Some required cookies are missing!")
+        print(f"Required: {REQUIRED_COOKIES}")
+        print(f"Found: {list(cookies.keys())}")
+        print()
+
+        response = input("Continue anyway? (y/N): ").strip().lower()
+        if response != "y":
+            print("Cancelled.")
+            return None
+
+    # Create tokens object (CSRF and session ID will be auto-extracted later)
+    tokens = AuthTokens(
+        cookies=cookies,
+        csrf_token="",  # Will be auto-extracted
+        session_id="",  # Will be auto-extracted
+        extracted_at=time.time(),
+    )
+
+    # Save to cache
+    print()
+    print("Saving cookies...")
+    save_tokens_to_cache(tokens)
+
+    print()
+    print("=" * 50)
+    print("SUCCESS!")
+    print("=" * 50)
+    print()
+    print(f"✓ Cookies saved: {len(cookies)} cookies")
+    print(f"✓ Cache location: {get_cache_path()}")
+    print()
+    print("Note: CSRF token and session ID will be automatically")
+    print("      extracted when you first use the MCP.")
+    print()
+    print("You can now use the MCP tools to test authentication:")
+    print("  Ask your AI assistant to call: notebook_list()")
+    print()
+
+    return tokens
+
+
 def main():
     """Main entry point."""
     import argparse
@@ -449,13 +548,25 @@ def main():
         epilog="""
 This tool extracts authentication tokens from Chrome for use with the NotebookLM Consumer MCP.
 
-If Chrome is not running, it will be launched automatically:
-1. First in headless mode to check if you're already logged in
-2. If not logged in, a visible Chrome window opens for you to log in
-3. Tokens are cached to ~/.notebooklm-consumer/auth.json
+TWO MODES:
+
+1. MANUAL MODE (--manual): Simple cookie paste (recommended)
+   - Extract cookies from Chrome DevTools manually
+   - Paste them when prompted
+   - No Chrome remote debugging required
+
+2. AUTO MODE (default): Automatic extraction via Chrome DevTools
+   - Requires Chrome with remote debugging enabled
+   - Automatically extracts cookies from browser
+   - More complex but fully automated
 
 After authentication, start the MCP server with: notebooklm-consumer-mcp
         """
+    )
+    parser.add_argument(
+        "--manual",
+        action="store_true",
+        help="Manual mode: prompt for cookie paste (simple, recommended)"
     )
     parser.add_argument(
         "--port",
@@ -487,7 +598,13 @@ After authentication, start the MCP server with: notebooklm-consumer-mcp
         return 0
 
     try:
-        tokens = run_auth_flow(args.port, auto_launch=not args.no_auto_launch)
+        if args.manual:
+            # Simple manual cookie entry
+            tokens = run_manual_cookie_entry()
+        else:
+            # Automatic extraction via Chrome DevTools
+            tokens = run_auth_flow(args.port, auto_launch=not args.no_auto_launch)
+
         return 0 if tokens else 1
     except KeyboardInterrupt:
         print("\nCancelled.")

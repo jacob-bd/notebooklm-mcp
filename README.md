@@ -57,7 +57,27 @@ uv tool install .
 
 **You only need to extract cookies once** - they last for weeks. The CSRF token and session ID are automatically extracted when needed.
 
-### Option 1: Using Chrome DevTools MCP (Recommended)
+### Option 1: CLI Tool (Easiest - Recommended!)
+
+Use the built-in CLI tool to paste your cookies directly:
+
+```bash
+notebooklm-consumer-auth --manual
+```
+
+This will:
+1. Show you step-by-step instructions for extracting cookies from Chrome
+2. Prompt you to paste the cookie string (no truncation - paste the entire long string!)
+3. Validate and save cookies to `~/.notebooklm-consumer/auth.json`
+4. Ready to use!
+
+**Why this is easier:**
+- No Chrome remote debugging needed
+- No AI assistant needed
+- Direct paste - no risk of truncation
+- Works with any tool (Claude Code, Cursor, Gemini CLI, etc.)
+
+### Option 2: Using Chrome DevTools MCP
 
 If your AI assistant has Chrome DevTools MCP available:
 
@@ -67,9 +87,9 @@ If your AI assistant has Chrome DevTools MCP available:
 
 That's it! Cookies are cached to `~/.notebooklm-consumer/auth.json`.
 
-### Option 2: Manual Extraction (Without Chrome DevTools MCP)
+### Option 3: Manual Extraction via AI Assistant
 
-If you don't have Chrome DevTools MCP available, you can extract cookies manually and save them via the MCP tool.
+If you prefer to use your AI assistant to save cookies (and you don't have Chrome DevTools MCP), you can extract cookies manually and ask your assistant to call the `save_auth_tokens` tool.
 
 **Step 1: Open Chrome and log into NotebookLM**
 - Go to `https://notebooklm.google.com`
