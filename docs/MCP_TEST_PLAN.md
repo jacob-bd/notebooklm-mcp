@@ -1,6 +1,6 @@
 # NotebookLM Consumer MCP - Comprehensive Test Plan
 
-**Purpose:** Verify all 30 MCP tools work correctly after optimization.
+**Purpose:** Verify all 31 MCP tools work correctly after optimization.
 
 **Prerequisites:**
 - MCP server installed: `uv cache clean && uv tool install --force .`
@@ -30,7 +30,7 @@ Your AI assistant will:
 
 ### Benefits of Automation
 
-- ✅ **Faster testing** - Complete all 30 tools in minutes instead of hours
+- ✅ **Faster testing** - Complete all 31 tools in minutes instead of hours
 - ✅ **Consistent validation** - Every tool tested the same way each time
 - ✅ **Full coverage** - No skipped tests or missed edge cases
 - ✅ **Interactive verification** - AI pauses for critical validations (like Drive sync)
@@ -176,6 +176,18 @@ Get an AI-generated summary of source [source_id from Test 2.4].
 ```
 
 **Expected:** AI summary with keywords/chips.
+
+---
+
+### Test 2.6 - Delete Source
+**Tool:** `source_delete`
+
+**Prompt:**
+```
+Delete source [source_id from Test 2.5] from the notebook.
+```
+
+**Expected:** Source permanently deleted. Requires `confirm=True` after user approval.
 
 ---
 

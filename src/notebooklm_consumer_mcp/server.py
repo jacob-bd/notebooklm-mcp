@@ -550,6 +550,40 @@ def source_sync_drive(
 
 
 @mcp.tool()
+def source_delete(
+    source_id: str,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Delete source permanently. IRREVERSIBLE. Requires confirm=True.
+
+    Args:
+        source_id: Source UUID to delete
+        confirm: Must be True after user approval
+    """
+    if not confirm:
+        return {
+            "status": "error",
+            "error": "Deletion not confirmed. You must ask the user to confirm "
+                     "before deleting. Set confirm=True only after user approval.",
+            "warning": "This action is IRREVERSIBLE. The source will be "
+                       "permanently deleted from the notebook.",
+        }
+
+    try:
+        client = get_client()
+        result = client.delete_source(source_id)
+
+        if result:
+            return {
+                "status": "success",
+                "message": f"Source {source_id} has been permanently deleted.",
+            }
+        return {"status": "error", "error": "Failed to delete source"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
 def research_start(
     query: str,
     source: str = "web",

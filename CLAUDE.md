@@ -116,6 +116,7 @@ src/notebooklm_consumer_mcp/
 | `notebook_query` | Ask questions (AI answers!) |
 | `source_list_drive` | List sources with types, check Drive freshness |
 | `source_sync_drive` | Sync stale Drive sources (REQUIRES confirmation) |
+| `source_delete` | Delete a source from notebook (REQUIRES confirmation) |
 | `research_start` | Start Web or Drive research to discover sources |
 | `research_status` | Check research progress and get results |
 | `research_import` | Import discovered sources into notebook |
@@ -135,6 +136,7 @@ src/notebooklm_consumer_mcp/
 
 **IMPORTANT - Operations Requiring Confirmation:**
 - `notebook_delete` requires `confirm=True` - deletion is IRREVERSIBLE
+- `source_delete` requires `confirm=True` - deletion is IRREVERSIBLE
 - `source_sync_drive` requires `confirm=True` - always show stale sources first via `source_list_drive`
 - All studio creation tools require `confirm=True` - show settings and get user approval first
 - `studio_delete` requires `confirm=True` - list artifacts first via `studio_status`, deletion is IRREVERSIBLE
@@ -142,7 +144,6 @@ src/notebooklm_consumer_mcp/
 ## Features NOT Yet Implemented
 
 - [ ] **Notes** - Save chat responses as notes
-- [ ] **Delete source** - Remove sources
 - [ ] **Share notebook** - Collaboration features
 - [ ] **Export** - Download content
 
@@ -192,7 +193,7 @@ Only read API_REFERENCE.md when:
 **[docs/MCP_TEST_PLAN.md](./docs/MCP_TEST_PLAN.md)**
 
 This includes:
-- Step-by-step test cases for all 30 MCP tools
+- Step-by-step test cases for all 31 MCP tools
 - Authentication and basic operations tests
 - Source management and Drive sync tests
 - Studio content generation tests (audio, video, infographics, etc.)

@@ -90,6 +90,7 @@ class ConsumerNotebookLMClient:
     RPC_GET_SOURCE = "hizoJc"  # Get source details
     RPC_CHECK_FRESHNESS = "yR9Yof"  # Check if Drive source is stale
     RPC_SYNC_DRIVE = "FLmJqe"  # Sync Drive source with latest content
+    RPC_DELETE_SOURCE = "tGMBJ"  # Delete a source from notebook
     RPC_GET_CONVERSATIONS = "hPTbtc"
     RPC_PREFERENCES = "hT54vc"
     RPC_SUBSCRIPTION = "ozz5Z"
@@ -850,6 +851,35 @@ class ConsumerNotebookLMClient:
                     "synced_at": synced_at,
                 }
         return None
+
+    def delete_source(self, source_id: str) -> bool:
+        """Delete a source from a notebook permanently.
+
+        WARNING: This action is IRREVERSIBLE. The source will be permanently
+        deleted from the notebook.
+
+        Args:
+            source_id: The source UUID to delete
+
+        Returns:
+            True on success, False on failure
+        """
+        client = self._get_client()
+
+        # Delete source params: [[["source_id"]], [2]]
+        # Note: Extra nesting compared to delete_notebook
+        params = [[[source_id]], [2]]
+        body = self._build_request_body(self.RPC_DELETE_SOURCE, params)
+        url = self._build_url(self.RPC_DELETE_SOURCE)
+
+        response = client.post(url, content=body)
+        response.raise_for_status()
+
+        parsed = self._parse_response(response.text)
+        result = self._extract_rpc_result(parsed, self.RPC_DELETE_SOURCE)
+
+        # Response is typically [] on success
+        return result is not None
 
     def get_notebook_sources_with_types(self, notebook_id: str) -> list[dict]:
         """Get all sources from a notebook with their type information.

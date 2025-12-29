@@ -22,6 +22,7 @@ An MCP server for **Consumer NotebookLM** (notebooklm.google.com) - the free/per
 | `notebook_query` | Ask questions and get AI answers |
 | `source_list_drive` | List sources with freshness status |
 | `source_sync_drive` | Sync stale Drive sources (requires confirmation) |
+| `source_delete` | Delete a source from notebook (requires confirmation) |
 | `research_start` | Start Web or Drive research to discover sources |
 | `research_status` | Poll research progress with built-in wait |
 | `research_import` | Import discovered sources into notebook |
@@ -37,8 +38,7 @@ An MCP server for **Consumer NotebookLM** (notebooklm.google.com) - the free/per
 
 This MCP uses **reverse-engineered internal APIs** that:
 - Are undocumented and may change without notice
-- May violate Google's Terms of Service
-- Require cookie extraction from your browser
+- Require cookie extraction from your browser (I have a tool for that!)
 
 Use at your own risk for personal/experimental purposes.
 
@@ -95,7 +95,7 @@ For detailed instructions, troubleshooting, and how the authentication system wo
 
 ## MCP Configuration
 
-> **⚠️ Context Window Warning:** This MCP provides **30 tools** which consume a significant portion of your context window. It's recommended to **disable the MCP when not actively using NotebookLM** to preserve context for your other work. In Claude Code, use `@notebooklm-consumer` to toggle it on/off, or use `/mcp` command.
+> **⚠️ Context Window Warning:** This MCP provides **31 tools** which consume a significant portion of your context window. It's recommended to **disable the MCP when not actively using NotebookLM** to preserve context for your other work. In Claude Code, use `@notebooklm-consumer` to toggle it on/off, or use `/mcp` command.
 
 No environment variables needed - the MCP uses cached tokens from `~/.notebooklm-consumer/auth.json`.
 
@@ -194,7 +194,7 @@ where notebooklm-consumer-mcp
 
 ### Managing Context Window Usage
 
-Since this MCP has 30 tools, it's good practice to disable it when not in use:
+Since this MCP has 31 tools, it's good practice to disable it when not in use:
 
 **Claude Code:**
 ```bash
@@ -279,6 +279,12 @@ sources = source_list_drive(notebook_id)
 
 # Sync stale sources (after user confirmation)
 source_sync_drive(source_ids=["id1", "id2"], confirm=True)
+```
+
+### Delete Sources
+```python
+# Delete a source from notebook (after user confirmation)
+source_delete(source_id="source-uuid", confirm=True)
 ```
 
 ### Research and Import Sources
