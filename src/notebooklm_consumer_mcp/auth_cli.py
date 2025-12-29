@@ -88,6 +88,7 @@ def launch_chrome(port: int, headless: bool = False) -> bool:
         f"--remote-debugging-port={port}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-extensions",  # Bypass extensions that may interfere (e.g., Antigravity IDE)
     ]
 
     # Use the user's default Chrome profile to access existing cookies
