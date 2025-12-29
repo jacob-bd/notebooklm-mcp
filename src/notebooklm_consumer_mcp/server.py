@@ -662,11 +662,37 @@ def research_start(
         return {"status": "error", "error": str(e)}
 
 
+def _compact_research_result(result: dict) -> dict:
+    """Compact research result to save tokens.
+
+    Truncates report to 500 chars and limits sources to first 10.
+    Users can query the notebook for full details.
+    """
+    if not isinstance(result, dict):
+        return result
+
+    # Truncate report if present
+    if "report" in result and result["report"]:
+        report = result["report"]
+        if len(report) > 500:
+            result["report"] = report[:500] + f"\n\n... (truncated {len(report) - 500} characters. Query the notebook for full details)"
+
+    # Limit sources shown
+    if "sources" in result and isinstance(result["sources"], list):
+        total_sources = len(result["sources"])
+        if total_sources > 10:
+            result["sources"] = result["sources"][:10]
+            result["sources_truncated"] = f"Showing first 10 of {total_sources} sources. Set compact=False for all sources."
+
+    return result
+
+
 @mcp.tool()
 def research_status(
     notebook_id: str,
     poll_interval: int = 30,
     max_wait: int = 300,
+    compact: bool = True,
 ) -> dict[str, Any]:
     """Poll research progress. Blocks until complete or timeout.
 
@@ -674,6 +700,8 @@ def research_status(
         notebook_id: Notebook UUID
         poll_interval: Seconds between polls (default: 30)
         max_wait: Max seconds to wait (default: 300, 0=single poll)
+        compact: If True (default), truncate report and limit sources shown to save tokens.
+                Use compact=False to get full details.
     """
     import time
 
@@ -693,6 +721,11 @@ def research_status(
             if result.get("status") in ("completed", "no_research"):
                 result["polls_made"] = polls
                 result["wait_time_seconds"] = round(time.time() - start_time, 1)
+
+                # Compact mode: truncate to save tokens
+                if compact and result.get("status") == "completed":
+                    result = _compact_research_result(result)
+
                 return {
                     "status": "success",
                     "research": result,
@@ -707,6 +740,11 @@ def research_status(
                     f"Research still in progress after {round(elapsed, 1)}s. "
                     f"Call research_status again to continue waiting."
                 )
+
+                # Compact mode even for in-progress
+                if compact:
+                    result = _compact_research_result(result)
+
                 return {
                     "status": "success",
                     "research": result,

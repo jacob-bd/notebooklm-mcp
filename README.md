@@ -299,6 +299,8 @@ result = research_start(
 notebook_id = result["notebook_id"]
 
 # Poll until complete (built-in wait, polls every 30s for up to 5 min)
+# By default, report is truncated to 500 chars to save tokens
+# Use compact=False to get full 10,000+ char report and all sources
 status = research_status(notebook_id)
 
 # Import all discovered sources

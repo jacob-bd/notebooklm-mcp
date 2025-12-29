@@ -538,10 +538,13 @@ Check the status of deep research for notebook [notebook_id]. Set max_wait to 60
 - Research completes with `status: completed`
 - `mode: deep`
 - `source_count`: ~40-50 sources (deep mode discovers more sources)
-- Sources have `title` and `result_type_name: deep_report`
-- **CRITICAL:** `report` field present with full markdown research report (10,000+ chars)
+- `sources` array shows first 10 sources (truncated by default to save tokens)
+- `sources_truncated` message indicates total count
+- **CRITICAL:** `report` field present but truncated to 500 chars (full report available via notebook query)
 
-**Validation:** If `source_count` is 0 or `report` is empty, there may be a parsing bug. This was fixed in the deep research parsing update.
+**Note:** By default, `research_status` uses `compact=True` to save tokens. The status, count, and task_id are preserved - only the verbose report text and full source list are truncated. Use `compact=False` to get the full 10,000+ char report.
+
+**Validation:** If `source_count` is 0 or `report` is missing entirely, there may be a parsing bug.
 
 ---
 
