@@ -1,6 +1,6 @@
 # Known Issues and Fragility
 
-This document describes known limitations and potential failure points in the NotebookLM MCP. Since this project uses reverse-engineered internal APIs, certain breakages are expected over time.
+This document describes known limitations and potential failure points in the NotebookLM MCP. Since this project uses undocumented internal APIs, certain breakages are expected over time.
 
 ---
 
@@ -90,7 +90,7 @@ The free tier of NotebookLM has usage limits enforced server-side.
 
 ---
 
-## 4. API Instability (Reverse-Engineered)
+## 4. API Instability (Undocumented Internal APIs)
 
 ### What it is
 This MCP uses internal, undocumented APIs that Google can change at any time without notice.

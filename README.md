@@ -42,7 +42,7 @@ An MCP server for **NotebookLM** (notebooklm.google.com).
 
 ## Important Disclaimer
 
-This MCP uses **reverse-engineered internal APIs** that:
+This MCP uses **internal APIs** that:
 - Are undocumented and may change without notice
 - Require cookie extraction from your browser (I have a tool for that!)
 

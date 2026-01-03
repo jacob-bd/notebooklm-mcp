@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**NotebookLM MCP Server** - Provides programmatic access to NotebookLM (notebooklm.google.com) using reverse-engineered internal APIs.
+**NotebookLM MCP Server** - Provides programmatic access to NotebookLM (notebooklm.google.com) using internal APIs.
 
 Tested with personal/free tier accounts. May work with Google Workspace accounts but has not been tested.
 
@@ -82,7 +82,7 @@ When API calls fail with auth errors, re-extract fresh cookies from Chrome DevTo
 src/notebooklm_mcp/
 ├── __init__.py      # Package version
 ├── server.py        # FastMCP server with tool definitions
-├── api_client.py    # Internal API client (reverse-engineered)
+├── api_client.py    # Internal API client
 ├── auth.py          # Token caching and validation
 └── auth_cli.py      # CLI for Chrome-based auth (notebooklm-mcp-auth)
 ```

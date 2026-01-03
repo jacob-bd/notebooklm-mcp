@@ -6,7 +6,7 @@
 
 This project implements a Model Context Protocol (MCP) server that provides programmatic access to [NotebookLM](https://notebooklm.google.com). It allows AI agents and developers to interact with NotebookLM notebooks, sources, and query capabilities.
 
-Tested with personal/free tier accounts. May work with Google Workspace accounts but has not been tested. This project relies on reverse-engineered internal APIs (`batchexecute` RPCs).
+Tested with personal/free tier accounts. May work with Google Workspace accounts but has not been tested. This project relies on internal APIs (`batchexecute` RPCs).
 
 ## Environment & Setup
 
@@ -83,14 +83,14 @@ uv run pytest tests/test_api_client.py
 
 - `src/notebooklm_mcp/`
     - `server.py`: Main entry point. Defines the MCP server and tools.
-    - `api_client.py`: The core logic. Contains the reverse-engineered API calls.
+    - `api_client.py`: The core logic. Contains the internal API calls.
     - `auth.py`: Handles token validation, storage, and loading.
     - `auth_cli.py`: Implementation of the `notebooklm-mcp-auth` CLI.
-- `CLAUDE.md`: Contains detailed documentation on the reverse-engineered RPC IDs and protocol specifics. **Refer to this file for API deep dives.**
+- `CLAUDE.md`: Contains detailed documentation on the internal RPC IDs and protocol specifics. **Refer to this file for API deep dives.**
 - `pyproject.toml`: Project configuration and dependencies.
 
 ## Key Conventions
 
-- **Reverse Engineering:** This project relies on undocumented APIs. Changes to Google's internal API will break functionality.
+- **Internal APIs:** This project relies on undocumented APIs. Changes to Google's internal API will break functionality.
 - **RPC Protocol:** The API uses Google's `batchexecute` protocol. Responses often contain "anti-XSSI" prefixes (`)]}'`) that must be stripped.
 - **Tools:** New features should be exposed as MCP tools in `server.py`.

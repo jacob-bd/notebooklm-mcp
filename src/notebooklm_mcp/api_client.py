@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """NotebookLM MCP API client (notebooklm.google.com).
 
-Reverse-engineered internal API. See CLAUDE.md for full documentation.
+Internal API. See CLAUDE.md for full documentation.
 """
 
 import json
