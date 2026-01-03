@@ -48,4 +48,9 @@ uv.lock
 Studio_tools_plan.md
 
 # Local project memory (personal, not shared)
+CLAUDE.md
 CLAUDE.local.md
+
+# Local docs (modified from upstream)
+docs/API_REFERENCE.md
+docs/MCP_TEST_PLAN.md

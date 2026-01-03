@@ -204,6 +204,30 @@ def source_describe(source_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def source_get_content(source_id: str) -> dict[str, Any]:
+    """Get raw text content of a source (no AI processing).
+
+    Returns the original indexed text from PDFs, web pages, pasted text,
+    or YouTube transcripts. Much faster than notebook_query for content export.
+
+    Args:
+        source_id: Source UUID
+
+    Returns: content (str), title (str), source_type (str), char_count (int)
+    """
+    try:
+        client = get_client()
+        result = client.get_source_fulltext(source_id)
+
+        return {
+            "status": "success",
+            **result,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
 def notebook_add_url(notebook_id: str, url: str) -> dict[str, Any]:
     """Add URL (website or YouTube) as source.
 

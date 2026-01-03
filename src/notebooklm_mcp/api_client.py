@@ -685,6 +685,91 @@ class NotebookLMClient:
             "keywords": keywords,
         }
 
+    def get_source_fulltext(self, source_id: str) -> dict[str, Any]:
+        """Get the full text content of a source.
+
+        Returns the raw text content that was indexed from the source,
+        along with metadata like title and source type.
+
+        Args:
+            source_id: The source UUID
+
+        Returns:
+            Dict with content, title, source_type, and char_count
+        """
+        # The hizoJc RPC returns source details including full text
+        params = [[source_id], [2], [2]]
+        result = self._call_rpc(self.RPC_GET_SOURCE, params, "/")
+
+        content = ""
+        title = ""
+        source_type = ""
+        url = None
+
+        if result and isinstance(result, list):
+            # Response structure:
+            # result[0] = [[source_id], title, metadata, ...]
+            # result[1] = null
+            # result[2] = null
+            # result[3] = [[content_blocks]]
+            #
+            # Each content block: [start_pos, end_pos, content_data, ...]
+
+            # Extract from result[0] which contains source metadata
+            if len(result) > 0 and isinstance(result[0], list):
+                source_meta = result[0]
+
+                # Title is at position 1
+                if len(source_meta) > 1 and isinstance(source_meta[1], str):
+                    title = source_meta[1]
+
+                # Metadata is at position 2
+                if len(source_meta) > 2 and isinstance(source_meta[2], list):
+                    metadata = source_meta[2]
+                    # Source type code is at position 4
+                    if len(metadata) > 4:
+                        type_code = metadata[4]
+                        source_type = self._get_source_type_name(type_code)
+
+                    # URL might be at position 7 for web sources
+                    if len(metadata) > 7 and isinstance(metadata[7], list):
+                        url_info = metadata[7]
+                        if len(url_info) > 0 and isinstance(url_info[0], str):
+                            url = url_info[0]
+
+            # Extract content from result[3][0] - array of content blocks
+            if len(result) > 3 and isinstance(result[3], list):
+                content_wrapper = result[3]
+                if len(content_wrapper) > 0 and isinstance(content_wrapper[0], list):
+                    content_blocks = content_wrapper[0]
+                    # Collect all text from content blocks
+                    text_parts = []
+                    for block in content_blocks:
+                        if isinstance(block, list):
+                            # Each block is [start, end, content_data, ...]
+                            # Extract all text strings recursively
+                            texts = self._extract_all_text(block)
+                            text_parts.extend(texts)
+                    content = "\n\n".join(text_parts)
+
+        return {
+            "content": content,
+            "title": title,
+            "source_type": source_type,
+            "url": url,
+            "char_count": len(content),
+        }
+
+    def _extract_all_text(self, data: list) -> list[str]:
+        """Recursively extract all text strings from nested arrays."""
+        texts = []
+        for item in data:
+            if isinstance(item, str) and len(item) > 0:
+                texts.append(item)
+            elif isinstance(item, list):
+                texts.extend(self._extract_all_text(item))
+        return texts
+
     def create_notebook(self, title: str = "") -> Notebook | None:
         """Create a new notebook."""
         params = [title, None, None, [2], [1, None, None, None, None, None, None, None, None, None, [1]]]
@@ -931,13 +1016,16 @@ class NotebookLMClient:
     @staticmethod
     def _get_source_type_name(source_type: int | None) -> str:
         """Convert source type number to human-readable name."""
-        if source_type == 1:
-            return "google_docs"
-        elif source_type == 2:
-            return "google_slides_sheets"  # Slides and Sheets both use type 2
-        elif source_type == 4:
-            return "pasted_text"
-        return "unknown"
+        type_names = {
+            1: "google_docs",
+            2: "google_slides_sheets",  # Slides and Sheets both use type 2
+            3: "pdf",                   # PDF files (from URL or upload)
+            4: "pasted_text",
+            5: "web_page",              # Website content
+            8: "pasted_text",           # Also pasted/generated text
+            9: "youtube",               # YouTube video transcripts
+        }
+        return type_names.get(source_type, "unknown")
 
     def add_url_source(self, notebook_id: str, url: str) -> dict | None:
         """Add a URL (website or YouTube) as a source to a notebook.
