@@ -243,9 +243,10 @@ class NotebookLMClient:
         import random
         self._reqid_counter = random.randint(100000, 999999)
 
-        # ALWAYS refresh CSRF token on initialization - they expire quickly (minutes)
-        # Even if a CSRF token was provided, it may be stale
-        self._refresh_auth_tokens()
+        # Only refresh CSRF token if not provided - tokens actually last hours/days, not minutes
+        # The retry logic in _call_rpc() handles expired tokens gracefully
+        if not self.csrf_token:
+            self._refresh_auth_tokens()
 
     def _refresh_auth_tokens(self) -> None:
         """
