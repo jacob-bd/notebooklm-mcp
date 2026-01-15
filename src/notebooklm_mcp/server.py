@@ -40,6 +40,7 @@ async def health_check(request: Request) -> JSONResponse:
 
 # Global state
 _client: NotebookLMClient | None = None
+_query_timeout: float = float(os.environ.get("NOTEBOOKLM_QUERY_TIMEOUT", "120.0"))
 
 
 def logged_tool():
@@ -425,6 +426,7 @@ def notebook_query(
     query: str,
     source_ids: list[str] | str | None = None,
     conversation_id: str | None = None,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     """Ask AI about EXISTING sources already in notebook. NOT for finding new sources.
 
@@ -435,6 +437,7 @@ def notebook_query(
         query: Question to ask
         source_ids: Source IDs to query (default: all)
         conversation_id: For follow-up questions
+        timeout: Request timeout in seconds (default: from env NOTEBOOKLM_QUERY_TIMEOUT or 120.0)
     """
     try:
         # Handle AI clients that send source_ids as a JSON string instead of a list
@@ -446,12 +449,16 @@ def notebook_query(
                 # If not valid JSON, treat as a single source ID
                 source_ids = [source_ids]
 
+        # Use provided timeout or fall back to global default
+        effective_timeout = timeout if timeout is not None else _query_timeout
+
         client = get_client()
         result = client.query(
             notebook_id,
             query_text=query,
             source_ids=source_ids,
             conversation_id=conversation_id,
+            timeout=effective_timeout,
         )
 
         if result:
@@ -1927,14 +1934,16 @@ Environment Variables:
   NOTEBOOKLM_MCP_PORT          Port to listen on (default: 8000)
   NOTEBOOKLM_MCP_PATH          MCP endpoint path (default: /mcp)
   NOTEBOOKLM_MCP_STATELESS     Enable stateless mode for scaling (true/false)
-  NOTEBOOKLM_MCP_DEBUG         Enable MCP request/response logging (true/false)
+  NOTEBOOKLM_MCP_DEBUG         Enable debug logging for MCP + API traffic (true/false)
+  NOTEBOOKLM_QUERY_TIMEOUT     Query timeout in seconds (default: 120.0)
 
 Examples:
   notebooklm-mcp                              # Default stdio transport
   notebooklm-mcp --transport http             # HTTP on localhost:8000
   notebooklm-mcp --transport http --port 3000 # HTTP on custom port
   notebooklm-mcp --transport http --host 0.0.0.0  # Bind to all interfaces
-  notebooklm-mcp --debug                      # Enable MCP request/response logging
+  notebooklm-mcp --debug                      # Log MCP calls + NotebookLM API traffic
+  notebooklm-mcp --query-timeout 180          # Set query timeout to 180 seconds
 
         """
     )
@@ -1971,26 +1980,45 @@ Examples:
         "--debug",
         action="store_true",
         default=os.environ.get("NOTEBOOKLM_MCP_DEBUG", "").lower() == "true",
-        help="Enable debug logging (logs MCP tool requests/responses)"
+        help="Enable debug logging (MCP tool calls + NotebookLM API requests/responses)"
+    )
+    parser.add_argument(
+        "--query-timeout",
+        type=float,
+        default=float(os.environ.get("NOTEBOOKLM_QUERY_TIMEOUT", "120.0")),
+        help="Query timeout in seconds (default: 120.0)"
     )
     args = parser.parse_args()
     
-    # Configure logging - only MCP request/response logger
+    # Update global query timeout from CLI args
+    global _query_timeout
+    _query_timeout = args.query_timeout
+    
+    # Configure logging
     if args.debug:
         logging.basicConfig(
             level=logging.WARNING,  # Suppress most logs
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-        # Enable MCP request/response logging only
-        mcp_logger.setLevel(logging.DEBUG)
+        
+        # Shared handler and formatter for debug loggers
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter(
             '%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         ))
+        
+        # Enable MCP request/response logging
+        mcp_logger.setLevel(logging.DEBUG)
         mcp_logger.addHandler(handler)
-        print("Debug logging: ENABLED (MCP requests/responses only)")
+        
+        # Enable API request/response logging (between MCP server and NotebookLM API)
+        api_logger = logging.getLogger("notebooklm_mcp.api")
+        api_logger.setLevel(logging.DEBUG)
+        api_logger.addHandler(handler)
+        
+        print("Debug logging: ENABLED (MCP tool calls + NotebookLM API requests/responses)")
     
     if args.transport == "http":
         print(f"Starting NotebookLM MCP server (HTTP) on http://{args.host}:{args.port}{args.path}")

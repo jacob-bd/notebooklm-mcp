@@ -1257,6 +1257,7 @@ class NotebookLMClient:
         query_text: str,
         source_ids: list[str] | None = None,
         conversation_id: str | None = None,
+        timeout: float = 120.0,
     ) -> dict | None:
         """Query the notebook with a question.
 
@@ -1270,6 +1271,7 @@ class NotebookLMClient:
             conversation_id: Optional conversation ID for follow-up questions.
                            If None, starts a new conversation.
                            If provided and exists in cache, includes conversation history.
+            timeout: Request timeout in seconds (default: 120.0)
 
         Returns:
             Dict with:
@@ -1337,7 +1339,7 @@ class NotebookLMClient:
         query_string = urllib.parse.urlencode(url_params)
         url = f"{self.BASE_URL}{self.QUERY_ENDPOINT}?{query_string}"
 
-        response = client.post(url, content=body)
+        response = client.post(url, content=body, timeout=timeout)
         response.raise_for_status()
 
         # Parse streaming response
