@@ -192,7 +192,7 @@ class TestNotebookLMClientAuth:
 
     def test_add_drive_source_uses_extended_timeout(self, mock_client):
         """Test that add_drive_source uses extended timeout (120s) for large files."""
-        from notebooklm_mcp.api_client import DRIVE_SOURCE_TIMEOUT
+        from notebooklm_mcp.api_client import SOURCE_ADD_TIMEOUT
         
         with patch.object(mock_client, '_get_client') as mock_get_client, \
              patch.object(mock_client, '_parse_response') as mock_parse, \
@@ -209,14 +209,14 @@ class TestNotebookLMClientAuth:
             
             mock_client.add_drive_source("nb_id", "doc_id", "Title")
             
-            # Verify timeout=DRIVE_SOURCE_TIMEOUT was passed
+            # Verify timeout=SOURCE_ADD_TIMEOUT was passed
             _, call_kwargs = http_client.post.call_args
-            assert call_kwargs.get("timeout") == DRIVE_SOURCE_TIMEOUT
-            assert DRIVE_SOURCE_TIMEOUT == 120.0  # Verify constant value
+            assert call_kwargs.get("timeout") == SOURCE_ADD_TIMEOUT
+            assert SOURCE_ADD_TIMEOUT == 120.0  # Verify constant value
 
     def test_add_drive_source_timeout_returns_status(self, mock_client):
         """Test that add_drive_source returns timeout status on timeout exception."""
-        from notebooklm_mcp.api_client import DRIVE_SOURCE_TIMEOUT
+        from notebooklm_mcp.api_client import SOURCE_ADD_TIMEOUT
         
         with patch.object(mock_client, '_get_client') as mock_get_client:
             http_client = MagicMock(spec=httpx.Client)
@@ -227,7 +227,6 @@ class TestNotebookLMClientAuth:
             
             result = mock_client.add_drive_source("nb_id", "doc_id", "Title")
             
-            # Verify timeout status is returned
+            # Verify result contains friendly message
             assert result["status"] == "timeout"
-            assert "timed out" in result["message"].lower()
-            assert str(DRIVE_SOURCE_TIMEOUT) in result["message"]
+            assert f"timed out after {SOURCE_ADD_TIMEOUT}s" in result["message"].lower()

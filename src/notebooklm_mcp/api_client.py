@@ -25,7 +25,7 @@ class AuthenticationError(Exception):
 
 # Timeout configuration (seconds)
 DEFAULT_TIMEOUT = 30.0  # Default for most operations
-DRIVE_SOURCE_TIMEOUT = 120.0  # Extended timeout for Drive source operations (large slides/docs)
+SOURCE_ADD_TIMEOUT = 120.0  # Extended timeout for all source operations (large slides/docs/websites)
 
 
 # Ownership constants (from metadata position 0)
@@ -1131,8 +1131,15 @@ class NotebookLMClient:
         source_path = f"/notebook/{notebook_id}"
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
-        response = client.post(url_endpoint, content=body)
-        response.raise_for_status()
+        try:
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            # Large pages may take longer than the timeout but still succeed on backend
+            return {
+                "status": "timeout",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+            }
 
         parsed = self._parse_response(response.text)
         result = self._extract_rpc_result(parsed, self.RPC_ADD_SOURCE)
@@ -1163,8 +1170,14 @@ class NotebookLMClient:
         source_path = f"/notebook/{notebook_id}"
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
-        response = client.post(url_endpoint, content=body)
-        response.raise_for_status()
+        try:
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            return {
+                "status": "timeout",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+            }
 
         parsed = self._parse_response(response.text)
         result = self._extract_rpc_result(parsed, self.RPC_ADD_SOURCE)
@@ -1214,13 +1227,13 @@ class NotebookLMClient:
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
         try:
-            response = client.post(url_endpoint, content=body, timeout=DRIVE_SOURCE_TIMEOUT)
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
             response.raise_for_status()
         except httpx.TimeoutException:
             # Large files may take longer than the timeout but still succeed on backend
             return {
                 "status": "timeout",
-                "message": f"Operation timed out after {DRIVE_SOURCE_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
             }
 
         parsed = self._parse_response(response.text)

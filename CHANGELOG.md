@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-01-16
+
+### Fixed
+- **Standardized source timeouts** (supersedes #9)
+  - Renamed `DRIVE_SOURCE_TIMEOUT` to `SOURCE_ADD_TIMEOUT` (120s)
+  - Applied to all source additions: Drive, URL (websites/YouTube), and Text
+  - Added graceful timeout handling to `add_url_source` and `add_text_source`
+  - Prevents timeout errors when importing large websites or documents
+
 ## [0.1.11] - 2026-01-16
 
 ### Fixed
