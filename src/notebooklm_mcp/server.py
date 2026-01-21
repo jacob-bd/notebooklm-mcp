@@ -411,6 +411,13 @@ def notebook_add_drive(
         )
 
         if result:
+            # Handle timeout status from api_client (large files may timeout on backend)
+            if isinstance(result, dict) and result.get("status") == "timeout":
+                return {
+                    "status": "timeout",
+                    "message": result.get("message", "Operation timed out but may have succeeded."),
+                    "hint": "Check notebook sources before retrying to avoid duplicates.",
+                }
             return {
                 "status": "success",
                 "source": result,
@@ -837,6 +844,7 @@ def research_status(
     poll_interval: int = 30,
     max_wait: int = 300,
     compact: bool = True,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Poll research progress. Blocks until complete or timeout.
 
@@ -846,6 +854,7 @@ def research_status(
         max_wait: Max seconds to wait (default: 300, 0=single poll)
         compact: If True (default), truncate report and limit sources shown to save tokens.
                 Use compact=False to get full details.
+        task_id: Optional Task ID to poll for a specific research task.
     """
     import time
 
@@ -856,9 +865,13 @@ def research_status(
 
         while True:
             polls += 1
-            result = client.poll_research(notebook_id)
+            result = client.poll_research(notebook_id, target_task_id=task_id)
 
             if not result:
+                # If specific task requested but not found, keep waiting (it might appear)
+                if task_id:
+                     time.sleep(poll_interval)
+                     continue
                 return {"status": "error", "error": "Failed to poll research status"}
 
             # If completed or no research found, return immediately
@@ -920,7 +933,7 @@ def research_import(
         client = get_client()
 
         # First, get the current research results to get source details
-        poll_result = client.poll_research(notebook_id)
+        poll_result = client.poll_research(notebook_id, target_task_id=task_id)
 
         if not poll_result or poll_result.get("status") == "no_research":
             return {

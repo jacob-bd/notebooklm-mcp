@@ -124,6 +124,11 @@ class AuthenticationError(Exception):
     pass
 
 
+# Timeout configuration (seconds)
+DEFAULT_TIMEOUT = 30.0  # Default for most operations
+SOURCE_ADD_TIMEOUT = 120.0  # Extended timeout for all source operations (large slides/docs/websites)
+
+
 # Ownership constants (from metadata position 0)
 OWNERSHIP_MINE = constants.OWNERSHIP_MINE
 OWNERSHIP_SHARED = constants.OWNERSHIP_SHARED
@@ -666,23 +671,18 @@ class NotebookLMClient:
         """
         from .auth import load_cached_tokens, get_cache_path
         
-        # Check if auth.json has fresher tokens
+        # Check if auth.json has tokens - always try them since current tokens failed
         cache_path = get_cache_path()
         if cache_path.exists():
             cached = load_cached_tokens()
-            if cached and cached.extracted_at > 0:
-                # Check if cached tokens are newer than our current ones
-                # (meaning someone ran notebooklm-mcp-auth externally)
-                import time
-                current_time = time.time()
-                token_age = current_time - cached.extracted_at
-                
-                # If tokens are less than 5 minutes old, they're probably fresh
-                if token_age < 300:
-                    self.cookies = cached.cookies
-                    self.csrf_token = cached.csrf_token
-                    self._session_id = cached.session_id
-                    return True
+            if cached and cached.cookies:
+                # Always reload from disk when auth fails - current tokens are known-bad
+                # The cached tokens may be fresher (user ran notebooklm-mcp-auth)
+                # or the same, but worth retrying with a fresh CSRF token extraction
+                self.cookies = cached.cookies
+                self.csrf_token = ""  # Force re-extraction of CSRF token
+                self._session_id = ""  # Force re-extraction of session ID
+                return True
         
         # Try headless auth if Chrome profile exists
         try:
@@ -1276,8 +1276,15 @@ class NotebookLMClient:
         source_path = f"/notebook/{notebook_id}"
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
-        response = client.post(url_endpoint, content=body)
-        response.raise_for_status()
+        try:
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            # Large pages may take longer than the timeout but still succeed on backend
+            return {
+                "status": "timeout",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+            }
 
         parsed = self._parse_response(response.text)
         result = self._extract_rpc_result(parsed, self.RPC_ADD_SOURCE)
@@ -1308,8 +1315,14 @@ class NotebookLMClient:
         source_path = f"/notebook/{notebook_id}"
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
-        response = client.post(url_endpoint, content=body)
-        response.raise_for_status()
+        try:
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            return {
+                "status": "timeout",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+            }
 
         parsed = self._parse_response(response.text)
         result = self._extract_rpc_result(parsed, self.RPC_ADD_SOURCE)
@@ -1358,8 +1371,15 @@ class NotebookLMClient:
         source_path = f"/notebook/{notebook_id}"
         url_endpoint = self._build_url(self.RPC_ADD_SOURCE, source_path)
 
-        response = client.post(url_endpoint, content=body)
-        response.raise_for_status()
+        try:
+            response = client.post(url_endpoint, content=body, timeout=SOURCE_ADD_TIMEOUT)
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            # Large files may take longer than the timeout but still succeed on backend
+            return {
+                "status": "timeout",
+                "message": f"Operation timed out after {SOURCE_ADD_TIMEOUT}s but may have succeeded. Check notebook sources before retrying.",
+            }
 
         parsed = self._parse_response(response.text)
         result = self._extract_rpc_result(parsed, self.RPC_ADD_SOURCE)
@@ -1369,7 +1389,7 @@ class NotebookLMClient:
             if source_list and len(source_list) > 0:
                 source_data = source_list[0]
                 source_id = source_data[0][0] if source_data[0] else None
-                source_title = source_data[1] if len(source_data) > 1 else document_name
+                source_title = source_data[1] if len(source_data) > 1 else title
                 return {"id": source_id, "title": source_title}
         return None
 
@@ -1693,7 +1713,7 @@ class NotebookLMClient:
             }
         return None
 
-    def poll_research(self, notebook_id: str) -> dict | None:
+    def poll_research(self, notebook_id: str, target_task_id: str | None = None) -> dict | None:
         """Poll for research results.
 
         Call this repeatedly until status is "completed".
@@ -1806,8 +1826,9 @@ class NotebookLMClient:
                             "result_type_name": constants.RESULT_TYPES.get_name(result_type),
                         })
 
-            # Determine status (1 = in_progress, 2 = completed)
-            status = "completed" if status_code == 2 else "in_progress"
+            # Determine status (1 = in_progress, 2 = completed, 6 = imported/completed)
+            # Fix: Status 6 means "Imported" which is also a completed state
+            status = "completed" if status_code in (2, 6) else "in_progress"
 
             research_tasks.append({
                 "task_id": task_id,
@@ -1824,7 +1845,19 @@ class NotebookLMClient:
         if not research_tasks:
             return {"status": "no_research", "message": "No active research found"}
 
-        # Return the most recent (first) task
+        # If target_task_id provided, find the specific task
+        if target_task_id:
+            for task in research_tasks:
+                if task["task_id"] == target_task_id:
+                    return task
+            # If specified task not found, return None or error
+            # For now, return None to indicate not found/not ready?
+            # Or maybe we shouldn't filter strict if it's not found?
+            # Let's return None implies "waiting" or "not found yet"
+            return None
+
+        # Return the most recent (first) task if no task_id specified
+
         return research_tasks[0]
 
 

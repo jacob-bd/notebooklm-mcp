@@ -5,7 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-01-17
+
+### Fixed
+- **Critical Research Stability**:
+  - `poll_research` now accepts status code `6` (Imported) as success, fixing "hanging" Fast Research.
+  - Added `target_task_id` filtering to `poll_research` to ensure the correct research task is returned (essential for Deep Research).
+  - Updated `research_status` and `research_import` to use task ID filtering.
+  - `research_status` tool now accepts an optional `task_id` parameter.
+- **Missing Source Constants**:
+  - Included the code changes for `SOURCE_TYPE_UPLOADED_FILE`, `SOURCE_TYPE_IMAGE`, and `SOURCE_TYPE_WORD_DOC` that were omitted in v0.1.13.
+
+## [0.1.13] - 2026-01-17
+
+### Added
+- **Source type constants** for proper identification of additional source types:
+  - `SOURCE_TYPE_UPLOADED_FILE` (11): Direct file uploads (e.g., .docx uploaded directly)
+  - `SOURCE_TYPE_IMAGE` (13): Image files (GIF, JPEG, PNG)
+  - `SOURCE_TYPE_WORD_DOC` (14): Word documents via Google Drive
+- Updated `SOURCE_TYPES` CodeMapper with `uploaded_file`, `image`, and `word_doc` mappings
+
+## [0.1.12] - 2026-01-16
+
+### Fixed
+- **Standardized source timeouts** (supersedes #9)
+  - Renamed `DRIVE_SOURCE_TIMEOUT` to `SOURCE_ADD_TIMEOUT` (120s)
+  - Applied to all source additions: Drive, URL (websites/YouTube), and Text
+  - Added graceful timeout handling to `add_url_source` and `add_text_source`
+  - Prevents timeout errors when importing large websites or documents
+
+## [0.1.11] - 2026-01-16
+
+### Fixed
+- **Close Chrome after interactive authentication** - Chrome is now properly terminated after `notebooklm-mcp-auth` completes, releasing the profile lock and enabling headless auth for automatic token refresh
+- **Improve token reload from disk** - Removed the 5-minute timeout when reloading tokens during auth recovery. Previously, cached tokens older than 5 minutes were ignored even if the user had just run `notebooklm-mcp-auth`
+
+These fixes resolve "Authentication expired" errors that occurred even after users re-authenticated.
+
+## [0.1.10] - 2026-01-15
+
+### Fixed
+- **Timeout when adding large Drive sources** (fixes #9)
+  - Extended timeout from 30s to 120s for Drive source operations
+  - Large Google Slides (100+ slides) now add successfully
+  - Returns `status: "timeout"` instead of error when timeout occurs, indicating operation may have succeeded
+  - Added `DRIVE_SOURCE_TIMEOUT` constant in `api_client.py`
+
 ## [0.1.9] - 2026-01-11
+
 
 ### Added
 - **Automatic re-authentication** - Server now survives token expirations without restart

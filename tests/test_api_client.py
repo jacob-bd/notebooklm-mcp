@@ -189,3 +189,44 @@ class TestNotebookLMClientAuth:
             assert sources[0]["title"] == "Test Source Title"
             assert sources[0]["url"] == "https://example.com/test_doc"
             assert sources[0]["source_type_name"] == "web_page"
+
+    def test_add_drive_source_uses_extended_timeout(self, mock_client):
+        """Test that add_drive_source uses extended timeout (120s) for large files."""
+        from notebooklm_mcp.api_client import SOURCE_ADD_TIMEOUT
+        
+        with patch.object(mock_client, '_get_client') as mock_get_client, \
+             patch.object(mock_client, '_parse_response') as mock_parse, \
+             patch.object(mock_client, '_extract_rpc_result') as mock_extract:
+            
+            http_client = MagicMock(spec=httpx.Client)
+            mock_get_client.return_value = http_client
+            
+            req = httpx.Request("POST", "https://notebooklm.google.com/batchexecute")
+            http_client.post.return_value = httpx.Response(200, request=req, text="...")
+            
+            mock_parse.return_value = []
+            mock_extract.return_value = None
+            
+            mock_client.add_drive_source("nb_id", "doc_id", "Title")
+            
+            # Verify timeout=SOURCE_ADD_TIMEOUT was passed
+            _, call_kwargs = http_client.post.call_args
+            assert call_kwargs.get("timeout") == SOURCE_ADD_TIMEOUT
+            assert SOURCE_ADD_TIMEOUT == 120.0  # Verify constant value
+
+    def test_add_drive_source_timeout_returns_status(self, mock_client):
+        """Test that add_drive_source returns timeout status on timeout exception."""
+        from notebooklm_mcp.api_client import SOURCE_ADD_TIMEOUT
+        
+        with patch.object(mock_client, '_get_client') as mock_get_client:
+            http_client = MagicMock(spec=httpx.Client)
+            mock_get_client.return_value = http_client
+            
+            # Simulate timeout
+            http_client.post.side_effect = httpx.TimeoutException("Read timed out")
+            
+            result = mock_client.add_drive_source("nb_id", "doc_id", "Title")
+            
+            # Verify result contains friendly message
+            assert result["status"] == "timeout"
+            assert f"timed out after {SOURCE_ADD_TIMEOUT}s" in result["message"].lower()

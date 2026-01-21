@@ -146,6 +146,9 @@ SOURCE_TYPE_PASTED_TEXT = 4
 SOURCE_TYPE_WEB_PAGE = 5
 SOURCE_TYPE_GENERATED_TEXT = 8
 SOURCE_TYPE_YOUTUBE = 9
+SOURCE_TYPE_UPLOADED_FILE = 11
+SOURCE_TYPE_IMAGE = 13
+SOURCE_TYPE_WORD_DOC = 14
 
 SOURCE_TYPES = CodeMapper({
     "google_docs": SOURCE_TYPE_GOOGLE_DOCS,
@@ -155,6 +158,9 @@ SOURCE_TYPES = CodeMapper({
     "web_page": SOURCE_TYPE_WEB_PAGE,
     "generated_text": SOURCE_TYPE_GENERATED_TEXT,
     "youtube": SOURCE_TYPE_YOUTUBE,
+    "uploaded_file": SOURCE_TYPE_UPLOADED_FILE,
+    "image": SOURCE_TYPE_IMAGE,
+    "word_doc": SOURCE_TYPE_WORD_DOC,
 })
 
 # =============================================================================

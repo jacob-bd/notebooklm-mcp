@@ -433,6 +433,9 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
     print("=" * 40)
     print()
 
+    # Track Chrome process so we can close it after auth
+    chrome_process = None
+    
     # Check if Chrome is running with debugging
     debugger_url = get_chrome_debugger_url(port)
 
@@ -453,7 +456,7 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
         print("(First time: you'll need to log in to your Google account)")
         print()
         # Launch with visible window so user can log in
-        launch_chrome(port, headless=False)
+        chrome_process = launch_chrome(port, headless=False)
         time.sleep(3)
         debugger_url = get_chrome_debugger_url(port)
 
@@ -588,6 +591,19 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
     print()
     print("  3. Test by asking: 'List my NotebookLM notebooks'")
     print()
+
+    # Close Chrome if we launched it - this unlocks the profile for headless auth
+    if chrome_process:
+        print("Closing Chrome (profile saved for future headless auth)...")
+        try:
+            chrome_process.terminate()
+            chrome_process.wait(timeout=5)
+        except Exception:
+            try:
+                chrome_process.kill()
+            except Exception:
+                pass
+        print()
 
     return tokens
 
