@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 
 [[package]]
@@ -747,7 +747,7 @@ wheels = [
 
 [[package]]
 name = "notebooklm-mcp-server"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
