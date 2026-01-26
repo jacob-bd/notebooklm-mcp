@@ -195,6 +195,90 @@ curl http://localhost:8000/health
 4. **Monitor poll count**: If `polls_made > 20`, something is probably wrong
 5. **Check web UI**: Fastest way to verify actual status
 
+## Non-Blocking Polling Patterns
+
+### The Problem with Blocking Waits
+
+Deep research can take 5+ minutes. Blocking the agent for that entire time is inefficient:
+- Agent can't do other work
+- User experience is poor (no progress feedback)
+- Wastes compute resources
+
+### Recommended: Short Burst Polling
+
+Instead of one long wait, use short polling bursts with work in between:
+
+```python
+# Pattern 1: Single poll (instant check)
+result = research_status(notebook_id, max_wait=0, query="my query")
+if result["research"]["status"] == "in_progress":
+    # Research not done - do other work, poll again later
+    pass
+
+# Pattern 2: Short burst (60s max)
+result = research_status(notebook_id, max_wait=60, query="my query")
+if result["research"]["status"] == "in_progress":
+    # Still in progress after 60s - continue other tasks
+    pass
+
+# Pattern 3: Subagent for long waits
+# Main agent spawns subagent for research polling
+# Main agent continues with other tasks
+# Subagent reports back when done
+```
+
+### Deep Research Task ID Mutation
+
+**Important:** Deep research may change `task_id` during processing!
+
+```
+research_start() returns task_id: "abc123"
+NotebookLM internally mutates to: "xyz789"
+Polling with "abc123" fails!
+```
+
+**Solution:** Always provide `query` parameter alongside `task_id`:
+
+```python
+# Start research
+start_result = research_start(notebook_id, query="quantum computing", mode="deep")
+original_task_id = start_result["task_id"]
+
+# Poll with BOTH task_id AND query for failsafe
+status = research_status(
+    notebook_id,
+    task_id=original_task_id,  # May become invalid
+    query="quantum computing",  # Fallback matching
+    max_wait=60
+)
+
+# IMPORTANT: Use the returned task_id for import, NOT the original!
+actual_task_id = status["research"]["task_id"]  # This is the real one
+research_import(notebook_id, task_id=actual_task_id)
+```
+
+### Agent Workflow Example
+
+```python
+# Step 1: Start research (non-blocking)
+start = research_start(notebook_id, query="AI in healthcare", mode="deep")
+query = "AI in healthcare"
+
+# Step 2: Quick status check, then do other work
+status = research_status(notebook_id, query=query, max_wait=0)
+while status["research"]["status"] == "in_progress":
+    # Do other productive work here...
+    # e.g., process other queries, prepare report templates
+    
+    # Check again after some time
+    time.sleep(60)
+    status = research_status(notebook_id, query=query, max_wait=0)
+
+# Step 3: Import using the RETURNED task_id
+final_task_id = status["research"]["task_id"]
+research_import(notebook_id, task_id=final_task_id)
+```
+
 ## When to Report a Bug
 
 If you experience hangs after applying these fixes:

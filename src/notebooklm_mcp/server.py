@@ -856,7 +856,11 @@ def research_status(
         compact: If True (default), truncate report and limit sources shown to save tokens.
                 Use compact=False to get full details.
         task_id: Optional Task ID to poll for a specific research task.
-        query: Optional original query text (fallback for deep research where task_id may change)
+        query: Optional query text for fallback matching when task_id changes (deep research).
+
+    Note:
+        Deep research may change task_id internally. Always provide query for reliable matching.
+        Use response["research"]["task_id"] for research_import(), not the original task_id.
     """
     import time
 
