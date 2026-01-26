@@ -845,6 +845,7 @@ def research_status(
     max_wait: int = 300,
     compact: bool = True,
     task_id: str | None = None,
+    query: str | None = None,
 ) -> dict[str, Any]:
     """Poll research progress. Blocks until complete or timeout.
 
@@ -855,6 +856,7 @@ def research_status(
         compact: If True (default), truncate report and limit sources shown to save tokens.
                 Use compact=False to get full details.
         task_id: Optional Task ID to poll for a specific research task.
+        query: Optional original query text (fallback for deep research where task_id may change)
     """
     import time
 
@@ -879,17 +881,18 @@ def research_status(
                     "wait_time_seconds": round(time.time() - start_time, 1),
                 }
             
-            result = client.poll_research(notebook_id, target_task_id=task_id)
+            result = client.poll_research(notebook_id, target_task_id=task_id, target_query=query)
 
             if not result:
-                # If specific task requested but not found, check timeout before continuing
-                if task_id:
+                # If specific task/query requested but not found, check timeout before continuing
+                if task_id or query:
                     elapsed = time.time() - start_time
                     # Check if we should stop waiting (respect max_wait even when task not found)
                     if max_wait == 0 or elapsed >= max_wait:
+                        identifier = f"task_id={task_id}" if task_id else f"query='{query}'"
                         return {
                             "status": "error",
-                            "error": f"Task {task_id} not found after {round(elapsed, 1)}s. It may not exist or already completed.",
+                            "error": f"Research with {identifier} not found after {round(elapsed, 1)}s. It may not exist or already completed.",
                             "polls_made": polls,
                             "wait_time_seconds": round(elapsed, 1),
                         }

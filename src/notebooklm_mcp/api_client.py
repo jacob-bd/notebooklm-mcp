@@ -1713,16 +1713,29 @@ class NotebookLMClient:
             }
         return None
 
-    def poll_research(self, notebook_id: str, target_task_id: str | None = None) -> dict | None:
+    def poll_research(
+        self, 
+        notebook_id: str, 
+        target_task_id: str | None = None,
+        target_query: str | None = None,
+    ) -> dict | None:
         """Poll for research results.
 
         Call this repeatedly until status is "completed".
 
         Args:
             notebook_id: The notebook UUID
+            target_task_id: Optional task ID to filter for a specific research task
+            target_query: Optional query text to match (fallback when task_id changes during deep research)
 
         Returns:
-            Dict with status, sources, and summary when complete
+            Dict with status, sources, and summary when complete.
+            Returns None if target_task_id specified but not found.
+            
+        Note:
+            Deep research may change task_id during processing. If you provide both
+            target_task_id and target_query, we'll first try task_id matching, then
+            fallback to query matching if not found.
         """
         client = self._get_client()
 
@@ -1851,13 +1864,23 @@ class NotebookLMClient:
             for task in research_tasks:
                 if task["task_id"] == target_task_id:
                     return task
-            # If specified task not found, return None or error
-            # For now, return None to indicate not found/not ready?
-            # Or maybe we shouldn't filter strict if it's not found?
-            # Let's return None implies "waiting" or "not found yet"
+            # Task ID not found - try fallback to query matching
+            # (Deep research can change task_id during processing)
+            if target_query:
+                for task in research_tasks:
+                    if task.get("query", "").lower() == target_query.lower():
+                        return task
+            # No match found
+            return None
+        
+        # If only target_query provided (no task_id), match by query
+        if target_query:
+            for task in research_tasks:
+                if task.get("query", "").lower() == target_query.lower():
+                    return task
             return None
 
-        # Return the most recent (first) task if no task_id specified
+        # Return the most recent (first) task if no filters specified
 
         return research_tasks[0]
 
