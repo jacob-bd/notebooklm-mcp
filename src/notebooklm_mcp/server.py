@@ -2036,11 +2036,13 @@ Examples:
         # Enable MCP request/response logging
         mcp_logger.setLevel(logging.DEBUG)
         mcp_logger.addHandler(handler)
-        
+        mcp_logger.propagate = False  # Prevent duplicate logging via root logger
+
         # Enable API request/response logging (between MCP server and NotebookLM API)
         api_logger = logging.getLogger("notebooklm_mcp.api")
         api_logger.setLevel(logging.DEBUG)
         api_logger.addHandler(handler)
+        api_logger.propagate = False  # Prevent duplicate logging via root logger
         
         print("Debug logging: ENABLED (MCP tool calls + NotebookLM API requests/responses)")
     
