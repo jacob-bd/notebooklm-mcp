@@ -12,7 +12,7 @@ import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 import httpx
@@ -389,9 +389,13 @@ class NotebookLMClient:
             self._refresh_auth_tokens()
 
     def _get_httpx_cookies(self) -> httpx.Cookies:
-        """Convert cookies to httpx.Cookies object (preserving domains)."""
+        """Convert cookies to httpx.Cookies object (preserving domains).
+
+        Duplicates cookies for both .google.com and .googleusercontent.com
+        to ensure authentication works across redirect domains.
+        """
         cookies = httpx.Cookies()
-        
+
         # Determine if we have raw list[dict] or simple dict[str, str]
         if isinstance(self.cookies, list):
             for cookie in self.cookies:
@@ -399,14 +403,21 @@ class NotebookLMClient:
                 value = cookie.get("value")
                 domain = cookie.get("domain")
                 path = cookie.get("path", "/")
-                
+
                 if name and value:
+                    # Set cookie for original domain
                     cookies.set(name, value, domain=domain, path=path)
+
+                    # Also duplicate for .googleusercontent.com if original is .google.com
+                    # This is required for artifact downloads that redirect to googleusercontent.com
+                    if domain == ".google.com":
+                        cookies.set(name, value, domain=".googleusercontent.com", path=path)
         else:
-            # Fallback for simple dict
+            # Fallback for simple dict - set for both domains
             for name, value in self.cookies.items():
                 cookies.set(name, value, domain=".google.com")
-                
+                cookies.set(name, value, domain=".googleusercontent.com")
+
         return cookies
 
     def _get_cookie_header(self) -> str:
@@ -1534,52 +1545,128 @@ class NotebookLMClient:
     # Download Operations
     # =========================================================================
 
-    async def _download_url(self, url: str, output_path: str) -> str:
-        """Download content from a URL to a local file.
+    async def _download_url(
+        self,
+        url: str,
+        output_path: str,
+        progress_callback: Callable[[int, int], None] | None = None,
+        chunk_size: int = 65536
+    ) -> str:
+        """Download content from a URL to a local file with streaming support.
+
+        Features:
+        - Streams file in chunks to minimize memory usage
+        - Optional progress callback for UI integration
+        - Per-chunk timeouts to detect stalled connections
+        - Temp file usage to prevent corrupted partial downloads
+        - Authentication error detection
 
         Args:
-            url: The URL to download.
-            output_path: The local path to save the file.
+            url: The URL to download
+            output_path: The local path to save the file
+            progress_callback: Optional callback(bytes_downloaded, total_bytes)
+            chunk_size: Size of chunks to read (default 64KB)
 
         Returns:
-            The output path.
+            The output path
 
         Raises:
-            ArtifactDownloadError: If the download fails.
+            ArtifactDownloadError: If download fails
+            AuthenticationError: If auth redirect detected
         """
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Use temp file to prevent corrupted partial downloads
+        temp_file = output_file.with_suffix(output_file.suffix + ".tmp")
+
         # Build headers with auth cookies
-        # Use basic headers if _PAGE_FETCH_HEADERS is not available, otherwise merge
         base_headers = getattr(self, "_PAGE_FETCH_HEADERS", {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
         })
         headers = {**base_headers, "Referer": "https://notebooklm.google.com/"}
-        
+
         # Use httpx.Cookies for proper cross-domain redirect handling
         cookies = self._get_httpx_cookies()
 
+        # Per-chunk timeouts: 10s connect, 30s per chunk read/write
+        # This allows large files to download without timeout while detecting stalls
+        timeout = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=30.0)
+
         try:
-            async with httpx.AsyncClient(cookies=cookies, headers=headers, follow_redirects=True, timeout=120.0) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                
-                # Check for login redirect (content type HTML usually means auth failed for binary)
-                content_type = response.headers.get("content-type", "").lower()
-                if "text/html" in content_type and len(response.content) < 200000:
-                    # Heuristic: HTML content where binary expected is likely an auth error page
-                    # Unless we are expecting HTML (unlikely for audio/video/pdf)
-                    if "<!doctype html>" in response.text.lower() or "sign in" in response.text.lower():
-                         raise AuthenticationError("Download failed: Redirected to login page (AUTH_REQUIRED). Trace: Check cookies.")
-                
-                # Write to file
-                output_file.write_bytes(response.content)
-                
+            async with httpx.AsyncClient(
+                cookies=cookies,
+                headers=headers,
+                follow_redirects=True,
+                timeout=timeout
+            ) as client:
+                async with client.stream("GET", url) as response:
+                    response.raise_for_status()
+
+                    # Get total size if available
+                    content_length = response.headers.get("content-length")
+                    total_bytes = int(content_length) if content_length else 0
+
+                    # Check for auth redirect before starting download
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "text/html" in content_type:
+                        # Read first chunk to check for login page
+                        first_chunk = b""
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            first_chunk = chunk
+                            break
+
+                        if b"<!doctype html>" in first_chunk.lower() or b"sign in" in first_chunk.lower():
+                            raise AuthenticationError(
+                                "Download failed: Redirected to login page. "
+                                "Run 'nlm login' to refresh credentials."
+                            )
+
+                        # Not an auth error - write first chunk and continue
+                        with open(temp_file, "wb") as f:
+                            f.write(first_chunk)
+                            bytes_downloaded = len(first_chunk)
+
+                            if progress_callback:
+                                progress_callback(bytes_downloaded, total_bytes)
+
+                            # Continue streaming rest of file
+                            async for chunk in response.aiter_bytes(chunk_size=chunk_size):
+                                f.write(chunk)
+                                bytes_downloaded += len(chunk)
+
+                                if progress_callback:
+                                    progress_callback(bytes_downloaded, total_bytes)
+                    else:
+                        # Binary content - stream directly
+                        bytes_downloaded = 0
+                        with open(temp_file, "wb") as f:
+                            async for chunk in response.aiter_bytes(chunk_size=chunk_size):
+                                f.write(chunk)
+                                bytes_downloaded += len(chunk)
+
+                                if progress_callback:
+                                    progress_callback(bytes_downloaded, total_bytes)
+
+            # Move temp file to final location only on success
+            temp_file.rename(output_file)
             return str(output_file)
-        except Exception as e:
+
+        except httpx.HTTPError as e:
+            # Clean up temp file on failure
+            if temp_file.exists():
+                temp_file.unlink()
             raise ArtifactDownloadError(
-                "file", details=f"Failed to download from {url[:50]}...: {str(e)}"
+                "file",
+                details=f"HTTP error downloading from {url[:50]}...: {e}"
+            ) from e
+        except Exception as e:
+            # Clean up temp file on failure
+            if temp_file.exists():
+                temp_file.unlink()
+            raise ArtifactDownloadError(
+                "file",
+                details=f"Failed to download from {url[:50]}...: {str(e)}"
             ) from e
 
     def _list_raw(self, notebook_id: str) -> list[Any]:
@@ -1647,25 +1734,30 @@ class NotebookLMClient:
         else:
             target = candidates[0]
 
-        # Extract URL from metadata[6][5] (based on analysis)
+        # Extract URL from metadata[6][5]
         try:
             metadata = target[6]
-            media_list = metadata[5]
-            url = None
-            
-            # Try to find audio/mp4
-            if isinstance(media_list, list):
-                for item in media_list:
-                    if isinstance(item, list) and len(item) > 2 and "audio" in str(item[2]):
-                        url = item[0]
-                        break
-                if not url and len(media_list) > 0 and isinstance(media_list[0], list):
-                    url = media_list[0][0]
-            
-            if not url:
-                 raise ArtifactDownloadError("audio", details="No download URL found")
+            if not isinstance(metadata, list) or len(metadata) <= 5:
+                raise ArtifactParseError("audio", details="Invalid audio metadata structure")
 
-            # Run async download in sync context for now until we go full async
+            media_list = metadata[5]
+            if not isinstance(media_list, list) or len(media_list) == 0:
+                raise ArtifactParseError("audio", details="No media URLs found in metadata")
+
+            # Look for audio/mp4 mime type
+            url = None
+            for item in media_list:
+                if isinstance(item, list) and len(item) > 2 and item[2] == "audio/mp4":
+                    url = item[0]
+                    break
+
+            # Fallback to first URL if no audio/mp4 found
+            if not url and len(media_list) > 0 and isinstance(media_list[0], list):
+                url = media_list[0][0]
+
+            if not url:
+                raise ArtifactDownloadError("audio", details="No download URL found")
+
             return asyncio.run(self._download_url(url, output_path))
             
         except (IndexError, TypeError, AttributeError) as e:
@@ -1708,16 +1800,34 @@ class NotebookLMClient:
         # Extract URL from metadata[8]
         try:
             metadata = target[8]
+            if not isinstance(metadata, list):
+                raise ArtifactParseError("video", details="Invalid metadata structure")
+
+            # First, find the media_list (nested list containing URLs)
+            media_list = None
+            for item in metadata:
+                if (isinstance(item, list) and len(item) > 0 and
+                    isinstance(item[0], list) and len(item[0]) > 0 and
+                    isinstance(item[0][0], str) and item[0][0].startswith("http")):
+                    media_list = item
+                    break
+
+            if not media_list:
+                raise ArtifactDownloadError("video", details="No media URLs found in metadata")
+
+            # Look for video/mp4 with optimal encoding (item[1] == 4 indicates priority)
             url = None
-            # Video metadata parsing logic from analysis
-            if isinstance(metadata, list):
-                for item in metadata:
-                    if (isinstance(item, list) and len(item) > 0 and 
-                        isinstance(item[0], list) and len(item[0]) > 0 and 
-                        str(item[0][0]).startswith("http")):
-                        url = item[0][0]
+            for item in media_list:
+                if isinstance(item, list) and len(item) > 2 and item[2] == "video/mp4":
+                    url = item[0]
+                    # Prefer URLs with priority flag (item[1] == 4)
+                    if len(item) > 1 and item[1] == 4:
                         break
-            
+
+            # Fallback to first URL if no video/mp4 found
+            if not url and len(media_list) > 0 and isinstance(media_list[0], list):
+                url = media_list[0][0]
+
             if not url:
                 raise ArtifactDownloadError("video", details="No download URL found")
 
@@ -3445,6 +3555,208 @@ class NotebookLMClient:
         except (IndexError, TypeError, json.JSONDecodeError, AttributeError) as e:
             raise ArtifactParseError("mind_map", details=str(e)) from e
 
+    @staticmethod
+    def _extract_cell_text(cell: Any, _depth: int = 0) -> str:
+        """Recursively extract text from a nested data table cell structure.
+
+        Data table cells have deeply nested arrays with position markers (integers)
+        and text content (strings). This function traverses the structure and
+        concatenates all text fragments found.
+
+        Features:
+        - Depth tracking to prevent infinite recursion (max 100 levels)
+        - Handles None values gracefully
+        - Strips whitespace from extracted text
+        - Type validation at each level
+
+        Args:
+            cell: The cell data structure (can be str, int, list, or other)
+            _depth: Internal recursion depth counter for safety
+
+        Returns:
+            Extracted text string, stripped of leading/trailing whitespace
+        """
+        # Safety: prevent infinite recursion
+        if _depth > 100:
+            return ""
+
+        # Handle different types
+        if cell is None:
+            return ""
+        if isinstance(cell, str):
+            return cell.strip()
+        if isinstance(cell, (int, float)):
+            return ""  # Position markers are numeric
+        if isinstance(cell, list):
+            # Recursively extract from all list items
+            parts = []
+            for item in cell:
+                text = NotebookLMClient._extract_cell_text(item, _depth + 1)
+                if text:
+                    parts.append(text)
+            return " ".join(parts) if parts else ""
+
+        # Unknown type - convert to string as fallback
+        return str(cell).strip()
+
+    def _parse_data_table(
+        self,
+        raw_data: list,
+        validate_columns: bool = True
+    ) -> tuple[list[str], list[list[str]]]:
+        """Parse rich-text data table into headers and rows.
+
+        Features:
+        - Validates structure at each navigation step with clear error messages
+        - Optional column count validation across all rows
+        - Handles missing/empty cells gracefully
+        - Provides detailed error context for debugging
+
+        Structure: raw_data[0][0][0][0][4][2] contains the rows array where:
+        - [0][0][0][0] navigates through wrapper layers
+        - [4] contains the table content section [type, flags, rows_array]
+        - [2] is the actual rows array
+
+        Each row: [start_pos, end_pos, [cell1, cell2, ...]]
+        Each cell: deeply nested with position markers mixed with text
+
+        Args:
+            raw_data: The raw data table metadata from artifact[18]
+            validate_columns: If True, ensures all rows have same column count as headers
+
+        Returns:
+            Tuple of (headers, rows) where:
+            - headers: List of column names
+            - rows: List of data rows (each row is a list matching header length)
+
+        Raises:
+            ArtifactParseError: With detailed context if parsing fails
+        """
+        # Validate and navigate structure with clear error messages
+        try:
+            if not isinstance(raw_data, list) or len(raw_data) == 0:
+                raise ArtifactParseError(
+                    "data_table",
+                    details="Invalid raw_data: expected non-empty list at artifact[18]"
+                )
+
+            # Navigate: raw_data[0]
+            layer1 = raw_data[0]
+            if not isinstance(layer1, list) or len(layer1) == 0:
+                raise ArtifactParseError(
+                    "data_table",
+                    details="Invalid structure at raw_data[0]: expected non-empty list"
+                )
+
+            # Navigate: [0][0]
+            layer2 = layer1[0]
+            if not isinstance(layer2, list) or len(layer2) == 0:
+                raise ArtifactParseError(
+                    "data_table",
+                    details="Invalid structure at raw_data[0][0]: expected non-empty list"
+                )
+
+            # Navigate: [0][0][0]
+            layer3 = layer2[0]
+            if not isinstance(layer3, list) or len(layer3) == 0:
+                raise ArtifactParseError(
+                    "data_table",
+                    details="Invalid structure at raw_data[0][0][0]: expected non-empty list"
+                )
+
+            # Navigate: [0][0][0][0]
+            layer4 = layer3[0]
+            if not isinstance(layer4, list) or len(layer4) < 5:
+                raise ArtifactParseError(
+                    "data_table",
+                    details=f"Invalid structure at raw_data[0][0][0][0]: expected list with at least 5 elements, got {len(layer4) if isinstance(layer4, list) else type(layer4).__name__}"
+                )
+
+            # Navigate: [0][0][0][0][4] - table content section
+            table_section = layer4[4]
+            if not isinstance(table_section, list) or len(table_section) < 3:
+                raise ArtifactParseError(
+                    "data_table",
+                    details=f"Invalid table section at raw_data[0][0][0][0][4]: expected list with at least 3 elements, got {len(table_section) if isinstance(table_section, list) else type(table_section).__name__}"
+                )
+
+            # Navigate: [0][0][0][0][4][2] - rows array
+            rows_array = table_section[2]
+            if not isinstance(rows_array, list):
+                raise ArtifactParseError(
+                    "data_table",
+                    details=f"Invalid rows array at raw_data[0][0][0][0][4][2]: expected list, got {type(rows_array).__name__}"
+                )
+
+            if not rows_array:
+                raise ArtifactParseError(
+                    "data_table",
+                    details="Empty rows array - data table contains no data"
+                )
+
+        except IndexError as e:
+            raise ArtifactParseError(
+                "data_table",
+                details=f"Structure navigation failed - table may be corrupted or in unexpected format: {e}"
+            ) from e
+
+        # Extract headers and rows
+        headers: list[str] = []
+        rows: list[list[str]] = []
+        skipped_rows = 0
+
+        for i, row_section in enumerate(rows_array):
+            # Validate row format: [start_pos, end_pos, [cell_array]]
+            if not isinstance(row_section, list):
+                skipped_rows += 1
+                continue
+
+            if len(row_section) < 3:
+                skipped_rows += 1
+                continue
+
+            cell_array = row_section[2]
+            if not isinstance(cell_array, list):
+                skipped_rows += 1
+                continue
+
+            # Extract text from each cell
+            row_values = [self._extract_cell_text(cell) for cell in cell_array]
+
+            # First row is headers
+            if i == 0:
+                headers = row_values
+                if not headers or all(not h for h in headers):
+                    raise ArtifactParseError(
+                        "data_table",
+                        details="First row (headers) is empty - table must have column headers"
+                    )
+            else:
+                # Validate column count if requested
+                if validate_columns and len(row_values) != len(headers):
+                    # Pad or truncate to match header length
+                    if len(row_values) < len(headers):
+                        row_values.extend([""] * (len(headers) - len(row_values)))
+                    else:
+                        row_values = row_values[:len(headers)]
+
+                rows.append(row_values)
+
+        # Final validation
+        if not headers:
+            raise ArtifactParseError(
+                "data_table",
+                details="Failed to extract headers - first row may be malformed"
+            )
+
+        if not rows:
+            raise ArtifactParseError(
+                "data_table",
+                details=f"No data rows extracted (skipped {skipped_rows} malformed rows)"
+            )
+
+        return headers, rows
+
     def download_data_table(
         self,
         notebook_id: str,
@@ -3462,60 +3774,45 @@ class NotebookLMClient:
             The output path where the file was saved.
         """
         import csv
-        
+
         artifacts = self._list_raw(notebook_id)
-        
+
         # Filter for completed data tables (Type 9, Status 3)
         candidates = []
         for a in artifacts:
-             if isinstance(a, list) and len(a) > 18:
-                  if a[2] == self.STUDIO_TYPE_DATA_TABLE and a[4] == 3:
-                       candidates.append(a)
-        
+            if isinstance(a, list) and len(a) > 18:
+                if a[2] == self.STUDIO_TYPE_DATA_TABLE and a[4] == 3:
+                    candidates.append(a)
+
         if not candidates:
-             raise ArtifactNotReadyError("data_table")
+            raise ArtifactNotReadyError("data_table")
 
         target = None
         if artifact_id:
-             target = next((a for a in candidates if a[0] == artifact_id), None)
-             if not target:
-                  raise ArtifactNotReadyError("data_table", artifact_id)
+            target = next((a for a in candidates if a[0] == artifact_id), None)
+            if not target:
+                raise ArtifactNotReadyError("data_table", artifact_id)
         else:
-             target = candidates[0]
-        
+            target = candidates[0]
+
         try:
-             # Data table structure analysis
-             # content is usually at index 18: [description, language, columns, rows]
-             options = target[18]
-             if not isinstance(options, list) or len(options) < 4:
-                  raise ArtifactParseError("data_table", details="Missing table data")
-             
-             # Extract columns and rows
-             # Search options for table-like data
-             table_data = None
-             for item in options:
-                  if isinstance(item, list) and len(item) > 0 and isinstance(item[0], list):
-                       # Candidate for rows
-                       table_data = item
-                       break
-             
-             if not table_data:
-                  raise ArtifactParseError("data_table", details="Could not find table rows")
-                  
-             # Write to CSV
-             output = Path(output_path)
-             output.parent.mkdir(parents=True, exist_ok=True)
-             
-             with open(output, 'w', newline='', encoding='utf-8') as f:
-                  writer = csv.writer(f)
-                  for row in table_data:
-                       if isinstance(row, list):
-                            writer.writerow(row)
-                       
-             return str(output)
+            # Data is at index 18
+            raw_data = target[18]
+            headers, rows = self._parse_data_table(raw_data)
+
+            # Write to CSV
+            output = Path(output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(output, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                writer.writerows(rows)
+
+            return str(output)
 
         except (IndexError, TypeError, AttributeError) as e:
-             raise ArtifactParseError("data_table", details=str(e)) from e
+            raise ArtifactParseError("data_table", details=str(e)) from e
         
     def _get_artifact_content(self, notebook_id: str, artifact_id: str) -> str | None:
         """Fetch artifact HTML content for quiz/flashcard types."""
