@@ -75,7 +75,7 @@ Use at your own risk for personal/experimental purposes.
 
 ## Installation
 
-Install from PyPI using your preferred Python package manager:
+Install from PyPI. This single package includes **both the CLI and MCP server**:
 
 ### Using uv (Recommended)
 ```bash
@@ -91,6 +91,11 @@ pip install notebooklm-mcp-cli
 ```bash
 pipx install notebooklm-mcp-cli
 ```
+
+**After installation, you get:**
+- `nlm` — Command-line interface
+- `notebooklm-mcp` — MCP server for AI assistants
+- `notebooklm-mcp-auth` — Standalone authentication tool
 
 <details>
 <summary>Alternative: Install from Source</summary>
