@@ -152,23 +152,44 @@ Also remove from your AI tools:
 
 ## Authentication
 
-Before using the CLI or MCP, you need to authenticate with NotebookLM. Run:
+Before using the CLI or MCP, you need to authenticate with NotebookLM:
+
+### CLI Authentication (Recommended)
 
 ```bash
-# Recommended: Auto mode (launches Chrome, you log in)
-notebooklm-mcp-auth
+# Auto mode: launches Chrome, you log in, cookies extracted automatically
+nlm login
 
-# Alternative: File mode (manual cookie extraction)
-notebooklm-mcp-auth --file
+# Check if already authenticated
+nlm login --check
+
+# Use a named profile (for multiple Google accounts)
+nlm login --profile work
+nlm login --profile personal
+
+# Manual mode: import cookies from a file
+nlm login --manual --file cookies.txt
 ```
 
-**Auto mode** launches a dedicated Chrome profile, you log in to Google, and cookies are extracted automatically. Your login persists for future auth refreshes.
+**Profile management:**
+```bash
+nlm auth status              # Show current auth status
+nlm auth list                # List all profiles
+nlm auth delete <profile>    # Delete a profile
+```
 
-**File mode** shows instructions for manually extracting cookies from Chrome DevTools and saving them to a file.
+### Standalone Auth Tool
 
-After successful auth, add the MCP to your AI tool and restart.
+If you only need the MCP server (not the CLI):
 
-For detailed instructions, troubleshooting, and how the authentication system works, see **[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)**.
+```bash
+notebooklm-mcp-auth          # Auto mode (launches Chrome)
+notebooklm-mcp-auth --file   # Manual file mode
+```
+
+**How it works:** Auto mode launches a dedicated Chrome profile, you log in to Google, and cookies are extracted automatically. Your login persists for future auth refreshes.
+
+For detailed instructions and troubleshooting, see **[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)**.
 
 ## MCP Configuration
 
