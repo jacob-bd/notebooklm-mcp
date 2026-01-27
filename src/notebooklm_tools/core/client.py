@@ -3908,6 +3908,64 @@ class NotebookLMClient:
                 details=f"Failed to parse JSON: {e}"
             ) from e
 
+    @staticmethod
+    def _format_quiz_markdown(title: str, questions: list[dict]) -> str:
+        """Format quiz as markdown.
+
+        Args:
+            title: Quiz title.
+            questions: List of question dicts with 'question', 'answerOptions', 'hint'.
+
+        Returns:
+            Formatted markdown string.
+        """
+        lines = [f"# {title}", ""]
+
+        for i, q in enumerate(questions, 1):
+            lines.append(f"## Question {i}")
+            lines.append(q.get("question", ""))
+            lines.append("")
+
+            for opt in q.get("answerOptions", []):
+                marker = "[x]" if opt.get("isCorrect") else "[ ]"
+                lines.append(f"- {marker} {opt.get('text', '')}")
+
+            if q.get("hint"):
+                lines.append("")
+                lines.append(f"**Hint:** {q['hint']}")
+
+            lines.append("")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_flashcards_markdown(title: str, cards: list[dict]) -> str:
+        """Format flashcards as markdown.
+
+        Args:
+            title: Flashcard deck title.
+            cards: List of card dicts with 'f' (front) and 'b' (back).
+
+        Returns:
+            Formatted markdown string.
+        """
+        lines = [f"# {title}", ""]
+
+        for i, card in enumerate(cards, 1):
+            front = card.get("f", "")
+            back = card.get("b", "")
+
+            lines.append(f"## Card {i}")
+            lines.append("")
+            lines.append(f"**Front:** {front}")
+            lines.append("")
+            lines.append(f"**Back:** {back}")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        return "\n".join(lines)
+
     def _format_interactive_content(
         self,
         app_data: dict,
@@ -3916,31 +3974,33 @@ class NotebookLMClient:
         html_content: str,
         is_quiz: bool,
     ) -> str:
-        """Format quiz or flashcard content."""
+        """Format quiz or flashcard content for output.
+
+        Args:
+            app_data: Parsed JSON data from HTML.
+            title: Artifact title.
+            output_format: Output format - json, markdown, or html.
+            html_content: Original HTML content.
+            is_quiz: True for quiz, False for flashcards.
+
+        Returns:
+            Formatted content string.
+        """
         if output_format == "html":
             return html_content
 
         if is_quiz:
             questions = app_data.get("quiz", [])
             if output_format == "markdown":
-                # Simple markdown formatting
-                md = f"# {title}\n\n"
-                for i, q in enumerate(questions, 1):
-                    md += f"## Question {i}\n{q.get('question', '')}\n\n"
-                    for opt in q.get('options', []):
-                        check = "(x)" if opt.get('isCorrect') else "( )"
-                        md += f"- {check} {opt.get('text', '')}\n"
-                    md += "\n"
-                return md
+                return self._format_quiz_markdown(title, questions)
             return json.dumps({"title": title, "questions": questions}, indent=2)
 
+        # Flashcards
         cards = app_data.get("flashcards", [])
         if output_format == "markdown":
-            md = f"# {title}\n\n"
-            for i, c in enumerate(cards, 1):
-                md += f"## Card {i}\n**Front:** {c.get('f', '')}\n\n**Back:** {c.get('b', '')}\n\n---\n\n"
-            return md
-        
+            return self._format_flashcards_markdown(title, cards)
+
+        # Normalize JSON format: {"f": "...", "b": "..."} -> {"front": "...", "back": "..."}
         normalized = [{"front": c.get("f", ""), "back": c.get("b", "")} for c in cards]
         return json.dumps({"title": title, "cards": normalized}, indent=2)
 
