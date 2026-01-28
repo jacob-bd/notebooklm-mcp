@@ -239,8 +239,15 @@ class BrowserUploader:
         # Modern NotebookLM UI doesn't create a file input element
         # Instead, it triggers the OS file picker directly
         # We use CDP's file chooser interception to handle this
+        #
+        # KNOWN ISSUE: This approach currently doesn't work - files aren't actually uploaded
+        # The code below claims success but files don't appear in NotebookLM
+        # Root cause: Not properly waiting for Page.fileChooserOpened event or using backendNodeId
+        # Workaround: Use HTTP upload (primary method, works perfectly)
+        # TODO: Fix by implementing proper CDP file chooser event handling
 
         logger.info(f"Uploading {file_path.name} using file chooser interception...")
+        logger.warning("Browser upload is currently broken - use HTTP upload instead")
 
         try:
             # Enable file chooser interception
