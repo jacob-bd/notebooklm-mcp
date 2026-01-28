@@ -111,11 +111,9 @@ def get_client() -> NotebookLMClient:
                 csrf_token = csrf_token or cached.csrf_token
                 session_id = session_id or cached.session_id
             else:
-                raise ValueError(
-                    "No authentication found. Either:\n"
-                    "1. Run 'notebooklm-mcp-auth' to authenticate via Chrome, or\n"
-                    "2. Set NOTEBOOKLM_COOKIES environment variable manually"
-                )
+                # No authentication found, but don't raise here to allow refresh_auth tool to run
+                return NotebookLMClient({}, "", "")
+
 
         _client = NotebookLMClient(
             cookies=cookies,
@@ -126,50 +124,33 @@ def get_client() -> NotebookLMClient:
 
 
 @logged_tool()
-def refresh_auth() -> dict[str, Any]:
-    """Reload auth tokens from disk or run headless re-authentication.
+def refresh_auth(browser: str = "vivaldi", visible: bool = False) -> dict[str, Any]:
+    """Reload auth tokens or run re-authentication.
     
-    Call this after running notebooklm-mcp-auth to pick up new tokens,
-    or to attempt automatic re-authentication if Chrome profile has saved login.
-    
-    Returns status indicating if tokens were refreshed successfully.
+    Args:
+        browser: Browser to use (chrome, vivaldi, edge, brave)
+        visible: If True, launch visible browser for manual login
     """
     global _client
     
     try:
-        # Try reloading from disk first
-        from .auth import load_cached_tokens
-        
-        cached = load_cached_tokens()
-        if cached:
+        client = get_client()
+        if client._try_reload_or_headless_auth(browser=browser, visible=visible):
             # Reset client to force re-initialization with fresh tokens
             _client = None
-            get_client()  # This will use the cached tokens
+            get_client()
             return {
                 "status": "success",
-                "message": "Auth tokens reloaded from disk cache.",
+                "message": f"Auth tokens refreshed via {browser} (visible={visible}).",
             }
-        
-        # Try headless auth if Chrome profile exists
-        try:
-            from .auth_cli import run_headless_auth
-            tokens = run_headless_auth()
-            if tokens:
-                _client = None
-                get_client()
-                return {
-                    "status": "success", 
-                    "message": "Auth tokens refreshed via headless Chrome.",
-                }
-        except Exception:
-            pass
         
         return {
             "status": "error",
-            "error": "No cached tokens found. Run 'notebooklm-mcp-auth' to authenticate.",
+            "error": "Failed to refresh auth tokens. Try running with visible=True.",
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
 
 @logged_tool()
 def notebook_list(max_results: int = 100) -> dict[str, Any]:
@@ -479,10 +460,11 @@ def notebook_query(
         result = client.query(
             notebook_id,
             query_text=query,
-            source_ids=source_ids,
+            source_ids=source_ids,  # type: ignore
             conversation_id=conversation_id,
             timeout=effective_timeout,
         )
+
 
         if result:
             return {

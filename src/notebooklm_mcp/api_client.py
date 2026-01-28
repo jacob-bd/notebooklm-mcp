@@ -349,10 +349,15 @@ class NotebookLMClient:
         import random
         self._reqid_counter = random.randint(100000, 999999)
 
-        # Only refresh CSRF token if not provided - tokens actually last hours/days, not minutes
+        # Cooldown for headless auth (to avoid CPU spikes from frequent browser launches)
+        self._last_headless_auth_time = 0.0
+        self._headless_auth_cooldown = 300.0  # 5 minutes
+
+        # Only refresh CSRF token if not provided and we have cookies
         # The retry logic in _call_rpc() handles expired tokens gracefully
-        if not self.csrf_token:
+        if not self.csrf_token and self.cookies:
             self._refresh_auth_tokens()
+
 
     def _refresh_auth_tokens(self) -> None:
         """
@@ -664,39 +669,50 @@ class NotebookLMClient:
                 "Authentication expired. Run 'notebooklm-mcp-auth' in your terminal to re-authenticate."
             )
 
-    def _try_reload_or_headless_auth(self) -> bool:
-        """Try to recover authentication by reloading from disk or running headless auth.
+    def _try_reload_or_headless_auth(self, browser: str = "chrome", visible: bool = False) -> bool:
+        """Try to recover authentication by reloading from disk or running auth.
         
         Returns True if new valid tokens were obtained, False otherwise.
         """
         from .auth import load_cached_tokens, get_cache_path
         
-        # Check if auth.json has tokens - always try them since current tokens failed
+        # Check if auth.json has tokens
         cache_path = get_cache_path()
         if cache_path.exists():
             cached = load_cached_tokens()
             if cached and cached.cookies:
-                # Always reload from disk when auth fails - current tokens are known-bad
-                # The cached tokens may be fresher (user ran notebooklm-mcp-auth)
-                # or the same, but worth retrying with a fresh CSRF token extraction
                 self.cookies = cached.cookies
-                self.csrf_token = ""  # Force re-extraction of CSRF token
-                self._session_id = ""  # Force re-extraction of session ID
+                self.csrf_token = ""
+                self._session_id = ""
                 return True
         
-        # Try headless auth if Chrome profile exists
+        # Auth flow (headless or visible)
+        import time
+        current_time = time.time()
+        if not visible and current_time - self._last_headless_auth_time < self._headless_auth_cooldown:
+            return False
+            
         try:
-            from .auth_cli import run_headless_auth
-            tokens = run_headless_auth()
+            from .auth_cli import run_headless_auth, run_auth_flow
+            self._last_headless_auth_time = current_time
+            
+            if visible:
+                # Use visible flow for manual login
+                tokens = run_auth_flow(browser_name=browser, browser_path=os.environ.get("NOTEBOOKLM_BROWSER_PATH"))
+            else:
+                # Try headless refresh
+                tokens = run_headless_auth(browser_name=browser, browser_path=os.environ.get("NOTEBOOKLM_BROWSER_PATH"))
+                
             if tokens:
                 self.cookies = tokens.cookies
                 self.csrf_token = tokens.csrf_token
                 self._session_id = tokens.session_id
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Auth flow failed: {e}")
         
         return False
+
 
     # =========================================================================
     # Conversation Management (for query follow-ups)
