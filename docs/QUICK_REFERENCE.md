@@ -60,6 +60,7 @@ notebooklm-mcp --transport http --debug
 --port PORT         Chrome DevTools port (default: 9222)
 --show-tokens       Show cached tokens
 --no-auto-launch    Don't auto-launch Chrome
+--devtools-timeout  DevTools HTTP timeout in seconds (default: 5.0)
 ```
 
 ## Environment Variables

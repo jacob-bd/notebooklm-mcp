@@ -37,6 +37,12 @@ notebooklm-mcp-auth
 # 4. Wait for "SUCCESS!" message
 ```
 
+If your DevTools endpoint is slow to respond, you can increase the timeout:
+
+```bash
+notebooklm-mcp-auth --devtools-timeout 15
+```
+
 ### What Happens Behind the Scenes
 
 1. A dedicated Chrome profile is created at `~/.notebooklm-mcp/chrome-profile/`

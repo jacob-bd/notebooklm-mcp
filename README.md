@@ -146,6 +146,12 @@ notebooklm-mcp-auth --file
 
 **File mode** shows instructions for manually extracting cookies from Chrome DevTools and saving them to a file.
 
+If the Chrome DevTools endpoint is slow, increase its timeout:
+
+```bash
+notebooklm-mcp-auth --devtools-timeout 15
+```
+
 After successful auth, add the MCP to your AI tool and restart.
 
 For detailed instructions, troubleshooting, and how the authentication system works, see **[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)**.

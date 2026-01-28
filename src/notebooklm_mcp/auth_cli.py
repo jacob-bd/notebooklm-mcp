@@ -129,30 +129,45 @@ def launch_chrome(port: int, headless: bool = False) -> "subprocess.Popen | None
         return None
 
 
-def get_chrome_debugger_url(port: int = CDP_DEFAULT_PORT) -> str | None:
-    """Get the WebSocket debugger URL for Chrome."""
+def get_chrome_debugger_url(port: int = CDP_DEFAULT_PORT, timeout: float = 5.0) -> str | None:
+    """Get the WebSocket debugger URL for Chrome.
+
+    Args:
+        port: Chrome DevTools port
+        timeout: HTTP timeout in seconds for the DevTools endpoint
+    """
     try:
-        response = httpx.get(f"http://localhost:{port}/json/version", timeout=5)
+        response = httpx.get(f"http://localhost:{port}/json/version", timeout=timeout)
         data = response.json()
         return data.get("webSocketDebuggerUrl")
     except Exception:
         return None
 
 
-def get_chrome_pages(port: int = CDP_DEFAULT_PORT) -> list[dict]:
-    """Get list of open pages in Chrome."""
+def get_chrome_pages(port: int = CDP_DEFAULT_PORT, timeout: float = 5.0) -> list[dict]:
+    """Get list of open pages in Chrome.
+
+    Args:
+        port: Chrome DevTools port
+        timeout: HTTP timeout in seconds for the DevTools endpoint
+    """
     try:
-        response = httpx.get(f"http://localhost:{port}/json", timeout=5)
+        response = httpx.get(f"http://localhost:{port}/json", timeout=timeout)
         return response.json()
     except Exception:
         return []
 
 
-def find_or_create_notebooklm_page(port: int = CDP_DEFAULT_PORT) -> dict | None:
-    """Find an existing NotebookLM page or create a new one."""
+def find_or_create_notebooklm_page(port: int = CDP_DEFAULT_PORT, timeout: float = 5.0) -> dict | None:
+    """Find an existing NotebookLM page or create a new one.
+
+    Args:
+        port: Chrome DevTools port
+        timeout: HTTP timeout in seconds for the DevTools endpoint
+    """
     from urllib.parse import quote
 
-    pages = get_chrome_pages(port)
+    pages = get_chrome_pages(port, timeout=timeout)
 
     # Look for existing NotebookLM page
     for page in pages:
@@ -165,13 +180,13 @@ def find_or_create_notebooklm_page(port: int = CDP_DEFAULT_PORT) -> dict | None:
         encoded_url = quote(NOTEBOOKLM_URL, safe="")
         response = httpx.put(
             f"http://localhost:{port}/json/new?{encoded_url}",
-            timeout=15
+            timeout=timeout
         )
         if response.status_code == 200 and response.text.strip():
             return response.json()
 
         # Fallback: create blank page then navigate
-        response = httpx.put(f"http://localhost:{port}/json/new", timeout=10)
+        response = httpx.put(f"http://localhost:{port}/json/new", timeout=timeout)
         if response.status_code == 200 and response.text.strip():
             page = response.json()
             # Navigate to NotebookLM using the page's websocket
@@ -325,7 +340,11 @@ def has_chrome_profile() -> bool:
     return cookies_file.exists()
 
 
-def run_headless_auth(port: int = 9223, timeout: int = 30) -> AuthTokens | None:
+def run_headless_auth(
+    port: int = 9223,
+    timeout: int = 30,
+    devtools_timeout: float = 5.0,
+) -> AuthTokens | None:
     """Run authentication in headless mode (no user interaction).
     
     This only works if the Chrome profile already has saved Google login.
@@ -334,6 +353,7 @@ def run_headless_auth(port: int = 9223, timeout: int = 30) -> AuthTokens | None:
     Args:
         port: Chrome DevTools port (use different port to avoid conflicts)
         timeout: Maximum time to wait for auth extraction
+        devtools_timeout: HTTP timeout in seconds for DevTools endpoints
         
     Returns:
         AuthTokens if successful, None if failed or no saved login
@@ -358,7 +378,7 @@ def run_headless_auth(port: int = 9223, timeout: int = 30) -> AuthTokens | None:
         # Wait for Chrome debugger to be ready
         debugger_url = None
         for _ in range(5):  # Try up to 5 times
-            debugger_url = get_chrome_debugger_url(port)
+            debugger_url = get_chrome_debugger_url(port, timeout=devtools_timeout)
             if debugger_url:
                 break
             time.sleep(1)
@@ -367,7 +387,7 @@ def run_headless_auth(port: int = 9223, timeout: int = 30) -> AuthTokens | None:
             return None
         
         # Find or create NotebookLM page
-        page = find_or_create_notebooklm_page(port)
+        page = find_or_create_notebooklm_page(port, timeout=devtools_timeout)
         if not page:
             return None
         
@@ -422,12 +442,17 @@ def run_headless_auth(port: int = 9223, timeout: int = 30) -> AuthTokens | None:
 
 
 
-def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> AuthTokens | None:
+def run_auth_flow(
+    port: int = CDP_DEFAULT_PORT,
+    auto_launch: bool = True,
+    devtools_timeout: float = 5.0,
+) -> AuthTokens | None:
     """Run the authentication flow.
 
     Args:
         port: Chrome DevTools port
         auto_launch: If True, automatically launch Chrome if not running
+        devtools_timeout: HTTP timeout in seconds for DevTools endpoints
     """
     print("NotebookLM MCP Authentication")
     print("=" * 40)
@@ -437,7 +462,7 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
     chrome_process = None
     
     # Check if Chrome is running with debugging
-    debugger_url = get_chrome_debugger_url(port)
+    debugger_url = get_chrome_debugger_url(port, timeout=devtools_timeout)
 
     if not debugger_url and auto_launch:
         # Check if our specific profile is already in use
@@ -458,7 +483,7 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
         # Launch with visible window so user can log in
         chrome_process = launch_chrome(port, headless=False)
         time.sleep(3)
-        debugger_url = get_chrome_debugger_url(port)
+        debugger_url = get_chrome_debugger_url(port, timeout=devtools_timeout)
 
     if not debugger_url:
         print(f"ERROR: Cannot connect to Chrome on port {port}")
@@ -476,7 +501,7 @@ def run_auth_flow(port: int = CDP_DEFAULT_PORT, auto_launch: bool = True) -> Aut
     print(f"Connected to Chrome debugger")
 
     # Find or create NotebookLM page
-    page = find_or_create_notebooklm_page(port)
+    page = find_or_create_notebooklm_page(port, timeout=devtools_timeout)
     if not page:
         print("ERROR: Failed to find or create NotebookLM page")
         return None
@@ -802,6 +827,12 @@ After authentication, start the MCP server with: notebooklm-mcp
         action="store_true",
         help="Don't automatically launch Chrome (requires Chrome to be running with debugging)"
     )
+    parser.add_argument(
+        "--devtools-timeout",
+        type=float,
+        default=5.0,
+        help="HTTP timeout in seconds for Chrome DevTools endpoints (default: 5.0)"
+    )
 
     args = parser.parse_args()
 
@@ -821,7 +852,11 @@ After authentication, start the MCP server with: notebooklm-mcp
             tokens = run_file_cookie_entry(cookie_file=args.file if args.file else None)
         else:
             # Automatic extraction via Chrome DevTools
-            tokens = run_auth_flow(args.port, auto_launch=not args.no_auto_launch)
+            tokens = run_auth_flow(
+                args.port,
+                auto_launch=not args.no_auto_launch,
+                devtools_timeout=args.devtools_timeout,
+            )
 
         return 0 if tokens else 1
     except KeyboardInterrupt:
