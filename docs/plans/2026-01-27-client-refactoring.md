@@ -4,7 +4,7 @@
 
 ## 🔄 RESUME HERE - Current Status
 
-**Last Commit:** 8556d79 - "refactor: Integrate SourceMixin into NotebookLMClient"
+**Last Commit:** 3a3ebcf - "refactor: Extract ResearchMixin from client.py"
 
 **Completed:**
 - ✅ Task 1: utils.py module created and tested (4 tests)
@@ -19,16 +19,21 @@
   - get_share_status, set_public_access, add_collaborator
 - ✅ Task 7: SourceMixin extracted (10 methods)
   - check_source_freshness, sync_drive_source, delete_source, get_notebook_sources_with_types, add_url_source, add_text_source, add_drive_source, upload_file, get_source_guide, get_source_fulltext
+- ✅ Task 8: ConversationMixin extracted (8 methods)
+  - query, clear_conversation, get_conversation_history, _build_conversation_history, _cache_conversation_turn, _parse_query_response, _extract_answer_from_chunk, _extract_source_ids_from_notebook
+- ✅ Task 9: ResearchMixin extracted (4 methods)
+  - start_research, poll_research, import_research_sources, _parse_research_sources
 
-**Test Status:** 45 passed, 20 skipped (E2E tests require auth)
+**Test Status:** 64 passed, 20 skipped (E2E tests require auth)
 
-**Reduction:** ~950 lines removed from client.py (now ~2,300 lines, down from 3,260)
+**Reduction:** ~940 lines removed from client.py (now 2,362 lines, down from 3,300)
 
 **Next Steps:**
-- Task 8: ConversationMixin (query, chat methods)
-- Task 9: StudioMixin (studio content generation)
+- Task 10: StudioMixin (studio content generation - ~600 lines, 15+ methods)
+- Task 11: DownloadMixin (download_audio/video/report etc. - ~300 lines)
 
 **Goal:** Decompose the 4,513-line monolithic `NotebookLMClient` class into focused, maintainable modules using a mixin-based architecture while preserving 100% backward compatibility.
+
 
 **Architecture:** Use mixin classes that inherit from a `BaseClient` containing HTTP/RPC infrastructure. The final `NotebookLMClient` composes all mixins via multiple inheritance, maintaining the exact same public API. Each mixin handles one domain (notebooks, sources, downloads, etc.).
 
