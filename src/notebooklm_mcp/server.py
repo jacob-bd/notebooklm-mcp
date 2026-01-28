@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Any
 
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -486,6 +486,92 @@ async def notebook_query(
                 "conversation_id": result.get("conversation_id"),
             }
         return {"status": "error", "error": "Failed to query notebook"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@logged_tool()
+async def notebook_query_stream(
+    notebook_id: str,
+    query: str,
+    source_ids: list[str] | str | None = None,
+    conversation_id: str | None = None,
+    ctx: Context = None,
+) -> dict[str, Any]:
+    """Ask AI with real-time streaming of thinking steps and answer.
+
+    Shows progress notifications as "thinking" chunks arrive, then streams answer.
+    Use this for long queries where you want to see intermediate progress.
+
+    Args:
+        notebook_id: Notebook UUID
+        query: Question to ask
+        source_ids: Source IDs to query (default: all)
+        conversation_id: For follow-up questions
+        ctx: FastMCP context for progress reporting (injected automatically)
+    """
+    try:
+        # Handle AI clients that send source_ids as a JSON string instead of a list
+        if isinstance(source_ids, str):
+            import json as json_module
+            try:
+                source_ids = json_module.loads(source_ids)
+            except json_module.JSONDecodeError:
+                source_ids = [source_ids]
+
+        client = await get_client()
+
+        thinking_steps: list[str] = []
+        answer_chunks: list[str] = []
+        final_conversation_id: str | None = None
+        chunk_count = 0
+
+        mcp_logger.debug(f"Starting streaming query for notebook {notebook_id}")
+
+        async for chunk in client.query_stream(
+            notebook_id,
+            query_text=query,
+            source_ids=source_ids,
+            conversation_id=conversation_id,
+        ):
+            chunk_count += 1
+            final_conversation_id = chunk.get("conversation_id")
+
+            if chunk["type"] == "thinking":
+                thinking_steps.append(chunk["text"])
+                mcp_logger.debug(f"📤 Streaming chunk #{chunk_count} (thinking): {chunk['text'][:80]}...")
+                # Report thinking progress to MCP client
+                if ctx:
+                    # Truncate thinking text for progress message
+                    preview = chunk["text"][:100] + "..." if len(chunk["text"]) > 100 else chunk["text"]
+                    await ctx.report_progress(
+                        progress=chunk_count,
+                        total=chunk_count + 5,  # Estimated total
+                        message=f"🤔 {preview}",
+                    )
+            else:
+                answer_chunks.append(chunk["text"])
+                mcp_logger.debug(f"📤 Streaming chunk #{chunk_count} (answer): {len(chunk['text'])} chars")
+                # Report answer progress
+                if ctx:
+                    await ctx.report_progress(
+                        progress=chunk_count,
+                        total=chunk_count + 1,
+                        message=f"💡 Receiving answer...",
+                    )
+
+        # Combine answer chunks (use longest as final answer)
+        final_answer = max(answer_chunks, key=len) if answer_chunks else ""
+
+        mcp_logger.debug(f"Streaming complete: {chunk_count} total chunks ({len(thinking_steps)} thinking, {len(answer_chunks)} answer)")
+
+        return {
+            "status": "success",
+            "answer": final_answer,
+            "conversation_id": final_conversation_id,
+            "thinking_steps": thinking_steps,
+            "chunk_count": chunk_count,
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

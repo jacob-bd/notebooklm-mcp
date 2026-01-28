@@ -13,7 +13,7 @@ import re
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, AsyncIterator
 
 
 import httpx
@@ -1543,6 +1543,192 @@ class NotebookLMClient:
             "is_follow_up": not is_new_conversation,
             "raw_response": response.text[:1000] if response.text else "",  # Truncate for debugging
         }
+
+    async def query_stream(
+        self,
+        notebook_id: str,
+        query_text: str,
+        source_ids: list[str] | None = None,
+        conversation_id: str | None = None,
+    ) -> AsyncIterator[dict]:
+        """Stream query response chunks in real-time.
+
+        Yields chunks as they arrive from the NotebookLM API, enabling real-time
+        display of "thinking steps" and progressive answer delivery.
+
+        Args:
+            notebook_id: The notebook UUID
+            query_text: The question to ask
+            source_ids: Optional list of source IDs to query (default: all sources)
+            conversation_id: Optional conversation ID for follow-up questions.
+
+        Yields:
+            Dict with:
+            - type: "thinking" or "answer"
+            - text: The chunk text content
+            - raw_type: Original type indicator (1=answer, 2=thinking)
+            - conversation_id: ID for follow-up questions
+            - is_final: True for the last chunk
+        """
+        import uuid
+
+        client = await self._get_client()
+
+        # If no source_ids provided, get them from the notebook
+        if source_ids is None:
+            notebook_data = await self.get_notebook(notebook_id)
+            source_ids = self._extract_source_ids_from_notebook(notebook_data)
+
+        # Determine if this is a new conversation or follow-up
+        is_new_conversation = conversation_id is None
+        if is_new_conversation:
+            conversation_id = str(uuid.uuid4())
+            conversation_history = None
+        else:
+            conversation_history = self._build_conversation_history(conversation_id)
+
+        # Build source IDs structure: [[[sid]]] for each source
+        sources_array = [[[sid]] for sid in source_ids] if source_ids else []
+
+        # Query params structure
+        params = [
+            sources_array,
+            query_text,
+            conversation_history,
+            [2, None, [1]],
+            conversation_id,
+        ]
+
+        # Build request body
+        params_json = json.dumps(params, separators=(",", ":"))
+        f_req = [None, params_json]
+        f_req_json = json.dumps(f_req, separators=(",", ":"))
+
+        body_parts = [f"f.req={urllib.parse.quote(f_req_json, safe='')}"]
+        if self.csrf_token:
+            body_parts.append(f"at={urllib.parse.quote(self.csrf_token, safe='')}")
+        body = "&".join(body_parts) + "&"
+
+        async with self._reqid_lock:
+            self._reqid_counter += 100000
+            reqid = self._reqid_counter
+
+        url_params = {
+            "bl": os.environ.get("NOTEBOOKLM_BL", "boq_labs-tailwind-frontend_20260108.06_p0"),
+            "hl": "en",
+            "_reqid": str(reqid),
+            "rt": "c",
+        }
+        if self._session_id:
+            url_params["f.sid"] = self._session_id
+
+        query_string = urllib.parse.urlencode(url_params)
+        url = f"{self.BASE_URL}{self.QUERY_ENDPOINT}?{query_string}"
+
+        # Collect all answer text for caching at the end
+        answer_chunks: list[str] = []
+        last_chunk: dict | None = None
+
+        # Stream the response
+        async with client.stream("POST", url, content=body, timeout=120.0) as response:
+            response.raise_for_status()
+
+            buffer = ""
+            async for chunk in response.aiter_text():
+                buffer += chunk
+
+                # Process complete lines
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+
+                    if not line:
+                        continue
+
+                    # Skip anti-XSSI prefix
+                    if line.startswith(")]}'"):
+                        continue
+
+                    # Try to parse as byte count (skip it)
+                    try:
+                        int(line)
+                        continue
+                    except ValueError:
+                        pass
+
+                    # Try to parse as JSON chunk
+                    chunk_data = self._parse_stream_chunk(line)
+                    if chunk_data:
+                        chunk_data["conversation_id"] = conversation_id
+                        chunk_data["is_final"] = False
+
+                        # Collect answer text for caching
+                        if chunk_data["type"] == "answer":
+                            answer_chunks.append(chunk_data["text"])
+
+                        last_chunk = chunk_data
+                        yield chunk_data
+
+        # Mark the last chunk as final and cache the conversation
+        if last_chunk:
+            last_chunk["is_final"] = True
+
+        # Cache the conversation turn with combined answer
+        if answer_chunks:
+            combined_answer = max(answer_chunks, key=len)  # Use longest answer chunk
+            await self._cache_conversation_turn(conversation_id, query_text, combined_answer)
+
+    def _parse_stream_chunk(self, json_str: str) -> dict | None:
+        """Parse a single streaming chunk and extract text and type.
+
+        Args:
+            json_str: A single JSON line from the streaming response
+
+        Returns:
+            Dict with type ("thinking" or "answer"), text, and raw_type, or None if parsing fails
+        """
+        try:
+            parsed = json.loads(json_str)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(parsed, list) or len(parsed) == 0:
+            return None
+
+        for item in parsed:
+            if not isinstance(item, list) or len(item) < 3:
+                continue
+            if item[0] != "wrb.fr":
+                continue
+
+            inner_json_str = item[2]
+            if not isinstance(inner_json_str, str):
+                continue
+
+            try:
+                inner_data = json.loads(inner_json_str)
+            except json.JSONDecodeError:
+                continue
+
+            if isinstance(inner_data, list) and len(inner_data) > 0:
+                first_elem = inner_data[0]
+                if isinstance(first_elem, list) and len(first_elem) > 0:
+                    text = first_elem[0]
+                    if isinstance(text, str) and len(text) > 10:
+                        # Extract type indicator
+                        raw_type = 2  # Default to thinking
+                        if len(first_elem) > 4 and isinstance(first_elem[4], list):
+                            type_info = first_elem[4]
+                            if len(type_info) > 0 and isinstance(type_info[-1], int):
+                                raw_type = type_info[-1]
+
+                        return {
+                            "type": "answer" if raw_type == 1 else "thinking",
+                            "text": text,
+                            "raw_type": raw_type,
+                        }
+
+        return None
 
     def _extract_source_ids_from_notebook(self, notebook_data: Any) -> list[str]:
         """Extract source IDs from notebook data.

@@ -10,6 +10,7 @@ Examples:
     python tests/mcp_client.py list
     python tests/mcp_client.py list --max 10
     python tests/mcp_client.py query <notebook-id> "What is the main topic?"
+    python tests/mcp_client.py query <notebook-id> "What is the main topic?" --stream
     python tests/mcp_client.py --json list
 """
 
@@ -17,7 +18,7 @@ import argparse
 import json
 import sys
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from contextlib import contextmanager
 
 import httpx
@@ -218,6 +219,131 @@ class MCPClient:
             print(f"Error: Unexpected error: {e}", file=sys.stderr)
             sys.exit(1)
 
+    def _call_tool_streaming(
+        self,
+        tool_name: str,
+        arguments: dict,
+        on_progress: Optional[Callable[[dict], None]] = None,
+    ) -> dict:
+        """
+        Call an MCP tool with streaming SSE support.
+
+        Handles progress notifications in real-time as they arrive.
+
+        Args:
+            tool_name: Name of the MCP tool
+            arguments: Tool arguments as dictionary
+            on_progress: Optional callback for progress notifications
+
+        Returns:
+            Final response dictionary from server
+        """
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use as context manager.")
+
+        url = f"{self.base_url}/mcp"
+
+        # Generate a unique progress token for this request
+        import uuid
+        progress_token = str(uuid.uuid4())
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "1",
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments,
+                "_meta": {
+                    "progressToken": progress_token
+                }
+            }
+        }
+
+        headers = {
+            "Accept": "text/event-stream, application/json",
+            "Content-Type": "application/json"
+        }
+
+        if self._session_id:
+            headers["mcp-session-id"] = self._session_id
+
+        try:
+            # Use streaming request to get SSE events as they arrive
+            with self._client.stream("POST", url, json=payload, headers=headers) as response:
+                response.raise_for_status()
+
+                final_result = None
+                buffer = ""
+
+                for chunk in response.iter_text():
+                    buffer += chunk
+
+                    # Process complete SSE events
+                    while "\n\n" in buffer or "\ndata: " in buffer:
+                        # Find complete events
+                        lines = buffer.split("\n")
+                        processed_lines = 0
+
+                        for i, line in enumerate(lines):
+                            line = line.strip()
+
+                            if line.startswith("data: "):
+                                data_json = line[6:]
+                                try:
+                                    event_data = json.loads(data_json)
+
+                                    # Check if this is a progress notification
+                                    if event_data.get("method") == "notifications/progress":
+                                        if on_progress:
+                                            params = event_data.get("params", {})
+                                            on_progress(params)
+                                    # Check if this is the final result
+                                    elif "result" in event_data or "error" in event_data:
+                                        final_result = event_data
+                                        processed_lines = i + 1
+                                        break
+                                except json.JSONDecodeError:
+                                    pass
+
+                            processed_lines = i + 1
+
+                        # Remove processed lines from buffer
+                        buffer = "\n".join(lines[processed_lines:])
+
+                # Parse final result
+                if final_result:
+                    if "error" in final_result:
+                        error = final_result["error"]
+                        print(f"Error: {error.get('message', 'Unknown error')}", file=sys.stderr)
+                        sys.exit(1)
+
+                    result = final_result.get("result", {})
+                    if "content" in result and isinstance(result["content"], list) and len(result["content"]) > 0:
+                        content_item = result["content"][0]
+                        if content_item.get("type") == "text":
+                            try:
+                                return json.loads(content_item["text"])
+                            except json.JSONDecodeError:
+                                return result
+                    return result
+
+                # Fallback: parse any remaining buffer as non-streaming response
+                return self._parse_sse_response(buffer) if buffer.strip() else {}
+
+        except httpx.ConnectError:
+            print(f"Error: Cannot connect to server at {self.base_url}", file=sys.stderr)
+            sys.exit(1)
+        except httpx.HTTPStatusError as e:
+            print(f"Error: Server returned {e.response.status_code}: {e.response.reason_phrase}", file=sys.stderr)
+            sys.exit(1)
+        except httpx.TimeoutException:
+            print(f"Error: Request timed out after {self.timeout}s", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error: Unexpected error: {e}", file=sys.stderr)
+            sys.exit(1)
+
     def health_check(self) -> dict:
         """
         Check server health.
@@ -275,6 +401,8 @@ class MCPClient:
         query: str,
         source_ids: Optional[list[str]] = None,
         conversation_id: Optional[str] = None,
+        stream: bool = False,
+        on_progress: Optional[Callable[[dict], None]] = None,
     ) -> dict:
         """
         Query a notebook with AI.
@@ -284,6 +412,8 @@ class MCPClient:
             query: Question to ask
             source_ids: Optional list of source IDs to filter
             conversation_id: Optional conversation ID to continue chat
+            stream: Enable streaming mode with progress notifications
+            on_progress: Callback for progress notifications (only used when stream=True)
 
         Returns:
             Response with AI answer
@@ -294,7 +424,74 @@ class MCPClient:
         if conversation_id:
             arguments["conversation_id"] = conversation_id
 
-        return self._call_tool("notebook_query", arguments)
+        if stream:
+            # Use streaming tool with progress callback
+            return self._call_tool_streaming(
+                "notebook_query_stream",
+                arguments,
+                on_progress=on_progress,
+            )
+        else:
+            return self._call_tool("notebook_query", arguments)
+
+    def query_notebook_stream(
+        self,
+        notebook_id: str,
+        query: str,
+        source_ids: Optional[list[str]] = None,
+        conversation_id: Optional[str] = None,
+        verbose: bool = True,
+    ) -> dict:
+        """
+        Query a notebook with AI using streaming mode.
+
+        Displays thinking steps and answer progress in real-time.
+
+        Args:
+            notebook_id: Notebook ID
+            query: Question to ask
+            source_ids: Optional list of source IDs to filter
+            conversation_id: Optional conversation ID to continue chat
+            verbose: Print progress to console
+
+        Returns:
+            Response with AI answer and thinking steps
+        """
+        thinking_count = 0
+        start_time = time.time()
+
+        def progress_callback(params: dict):
+            nonlocal thinking_count
+            message = params.get("message", "")
+            progress = params.get("progress", 0)
+            total = params.get("total", 0)
+
+            if verbose:
+                if message.startswith("🤔"):
+                    thinking_count += 1
+                    print(f"  [{progress}/{total}] {message}", file=sys.stderr)
+                elif message.startswith("💡"):
+                    print(f"  [{progress}/{total}] {message}", file=sys.stderr)
+
+        if verbose:
+            print(f"📡 Streaming query: {query[:50]}...", file=sys.stderr)
+            print("-" * 60, file=sys.stderr)
+
+        result = self.query_notebook(
+            notebook_id=notebook_id,
+            query=query,
+            source_ids=source_ids,
+            conversation_id=conversation_id,
+            stream=True,
+            on_progress=progress_callback,
+        )
+
+        if verbose:
+            elapsed = time.time() - start_time
+            print("-" * 60, file=sys.stderr)
+            print(f"✅ Completed in {elapsed:.2f}s with {thinking_count} thinking steps", file=sys.stderr)
+
+        return result
 
 
 class OutputFormatter:
@@ -413,6 +610,7 @@ Examples:
   %(prog)s list --max 10
   %(prog)s get <notebook-id>
   %(prog)s query <notebook-id> "What is the main topic?"
+  %(prog)s query <notebook-id> "What is the main topic?" --stream
   %(prog)s query <notebook-id> "Tell me more" --conversation <conv-id>
   %(prog)s --json list
   %(prog)s -v query <notebook-id> "Search query"
@@ -462,6 +660,9 @@ Examples:
     query_parser.add_argument(
         "--conversation", help="Conversation ID to continue chat"
     )
+    query_parser.add_argument(
+        "--stream", action="store_true", help="Enable streaming mode with progress notifications"
+    )
 
     return parser
 
@@ -496,12 +697,22 @@ def main():
             elif args.command == "get":
                 result = client.get_notebook(args.notebook_id)
             elif args.command == "query":
-                result = client.query_notebook(
-                    args.notebook_id,
-                    args.query,
-                    source_ids=args.sources,
-                    conversation_id=args.conversation,
-                )
+                if getattr(args, 'stream', False):
+                    # Use streaming mode with progress display
+                    result = client.query_notebook_stream(
+                        args.notebook_id,
+                        args.query,
+                        source_ids=args.sources,
+                        conversation_id=args.conversation,
+                        verbose=not args.json,  # Suppress progress output if JSON mode
+                    )
+                else:
+                    result = client.query_notebook(
+                        args.notebook_id,
+                        args.query,
+                        source_ids=args.sources,
+                        conversation_id=args.conversation,
+                    )
             else:
                 print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
                 sys.exit(1)
