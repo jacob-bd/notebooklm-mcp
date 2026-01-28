@@ -256,5 +256,36 @@ def main(
         console.print(ctx.get_help())
 
 
+def cli_main():
+    """Main CLI entry point with error handling."""
+    try:
+        app()
+    except Exception as e:
+        # Import here to avoid circular dependencies
+        from notebooklm_tools.core.exceptions import (
+            AuthenticationError,
+            ClientAuthenticationError,
+            NLMError,
+        )
+
+        # Handle authentication errors cleanly
+        if isinstance(e, (AuthenticationError, ClientAuthenticationError)):
+            console.print(f"\n[red]✗ Authentication Error[/red]")
+            console.print(f"  {str(e)}")
+            console.print(f"\n[yellow]→[/yellow] Run [cyan]nlm login[/cyan] or [cyan]notebooklm-mcp-auth[/cyan] to re-authenticate\n")
+            raise typer.Exit(1)
+
+        # Handle other NLM errors cleanly
+        elif isinstance(e, NLMError):
+            console.print(f"\n[red]✗ Error:[/red] {e.message}")
+            if e.hint:
+                console.print(f"[dim]{e.hint}[/dim]\n")
+            raise typer.Exit(1)
+
+        # For unexpected errors, show the traceback
+        else:
+            raise
+
+
 if __name__ == "__main__":
-    app()
+    cli_main()

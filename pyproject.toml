@@ -47,7 +47,7 @@ dev = [
 
 [project.scripts]
 # CLI entry point
-nlm = "notebooklm_tools.cli.main:app"
+nlm = "notebooklm_tools.cli.main:cli_main"
 
 # MCP server entry points (backward compatible)
 notebooklm-mcp = "notebooklm_tools.mcp.server:main"
