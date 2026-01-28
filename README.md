@@ -79,6 +79,12 @@ Install from PyPI. This single package includes **both the CLI and MCP server**:
 uv tool install notebooklm-mcp-cli
 ```
 
+### Using uvx (Run Without Install)
+```bash
+uvx --from notebooklm-mcp-cli nlm --help
+uvx --from notebooklm-mcp-cli notebooklm-mcp
+```
+
 ### Using pip
 ```bash
 pip install notebooklm-mcp-cli
@@ -296,6 +302,18 @@ This typically returns `/Users/<YOUR_USERNAME>/.local/bin/notebooklm-mcp` on mac
 ```
 
 Restart the application after adding the configuration.
+
+**Alternative: Use uvx (no permanent install needed):**
+```json
+{
+  "mcpServers": {
+    "notebooklm-mcp": {
+      "command": "uvx",
+      "args": ["--from", "notebooklm-mcp-cli", "notebooklm-mcp"]
+    }
+  }
+}
+```
 
 ### Other MCP-Compatible Tools
 
