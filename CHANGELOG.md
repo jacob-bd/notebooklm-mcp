@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Skill Installer for AI Coding Assistants** (`nlm skill` commands)
+  - Install NotebookLM skills for Claude Code, OpenCode, Gemini CLI, Antigravity, and Codex
+  - Support for user-level (`~/.config`) and project-level installation
+  - Parent directory validation with smart prompts (create/switch/cancel)
+  - Installation status tracking with `nlm skill list`
+  - Export all formats with `nlm skill install other`
+  - Unified CLI/MCP skill with intelligent tool detection logic
+  - Consistent `nlm-skill` folder naming across all installations
+  - Complete documentation in AI docs (`nlm --ai`)
+
 ## [0.1.14] - 2026-01-17
 
 ### Fixed
