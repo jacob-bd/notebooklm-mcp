@@ -209,11 +209,15 @@ nlm source list <notebook-id> --drive  # Show Drive sources with freshness
 nlm source list <notebook-id> --drive --skip-freshness  # Faster, skip freshness checks
 
 nlm source add <notebook-id> --url "https://..."           # Add URL
+nlm source add <notebook-id> --url "https://..." --wait    # Add URL and wait until processed
 nlm source add <notebook-id> --url "https://youtube.com/..." # Add YouTube
 nlm source add <notebook-id> --text "content" --title "Title"  # Add text
+nlm source add <notebook-id> --file /path/to/doc.pdf        # Upload local file
+nlm source add <notebook-id> --file doc.pdf --wait          # Upload and wait until processed
 nlm source add <notebook-id> --drive <doc-id>              # Add Drive doc
 nlm source add <notebook-id> --drive <doc-id> --type slides  # Add Drive slides
 # Types: doc, slides, sheets, pdf
+# Supported file types: PDF, TXT, MP3, WAV, M4A
 
 nlm source get <source-id>             # Get source metadata
 nlm source describe <source-id>        # AI summary + keywords
@@ -229,6 +233,7 @@ nlm source sync <notebook-id> --source-ids <ids> --confirm  # Sync specific
 ```bash
 nlm list sources <notebook-id>         # List sources
 nlm add url <notebook-id> <url>        # Add URL source
+nlm add url <notebook-id> <url> --wait # Add URL and wait until processed
 nlm add text <notebook-id> "content" --title "Title"  # Add text source
 nlm add drive <notebook-id> <doc-id>   # Add Drive source
 nlm get source <source-id>             # Get source metadata
@@ -506,6 +511,37 @@ nlm download-verb data-table <notebook-id> <artifact-id>    # Download data tabl
 - Infographic: `.png` (visual)
 - Data Table: `.csv` (tabular data)
 
+#### Interactive Artifact Downloads (Quiz, Flashcards)
+
+**Download with format conversion:**
+```bash
+nlm download quiz <notebook-id> <artifact-id>                    # JSON (default)
+nlm download quiz <notebook-id> <artifact-id> --format json      # Structured JSON
+nlm download quiz <notebook-id> <artifact-id> --format markdown  # Markdown format
+nlm download quiz <notebook-id> <artifact-id> --format html      # Interactive HTML
+
+nlm download flashcards <notebook-id> <artifact-id>                    # JSON (default)
+nlm download flashcards <notebook-id> <artifact-id> --format markdown  # Markdown format
+nlm download flashcards <notebook-id> <artifact-id> --format html      # Interactive HTML
+```
+
+**Format Options:**
+- `json`: Structured data (for programmatic use)
+- `markdown`: Human-readable format
+- `html`: Interactive browser-based quiz/flashcards with scoring
+
+### Export Commands (to Google Docs/Sheets)
+
+```bash
+nlm export docs <notebook-id> <artifact-id>              # Export report to Google Docs
+nlm export docs <notebook-id> <artifact-id> --title "My Doc"  # With custom title
+nlm export sheets <notebook-id> <artifact-id>            # Export data table to Google Sheets
+```
+
+**Exportable Types:**
+- Reports (Briefing Doc, Study Guide, Blog Post) → Google Docs
+- Data Tables → Google Sheets
+
 ### Alias Commands
 
 **Noun-First:**
@@ -742,6 +778,8 @@ nlm download-verb infographic <notebook-id> <infographic-id>
 16. **Download output files** - If no `--output` specified, files are saved with default names (e.g., `audio_<id>.mp3`, `video_<id>.mp4`, `report_<id>.txt`). Use `--output` to specify custom filenames.
 17. **Streaming downloads** - All downloads use efficient streaming to handle large files without memory issues. This is automatic.
 18. **Drive source sync** - Use `nlm source stale <notebook>` or `nlm list stale-sources <notebook>` to check which Drive sources need syncing before running sync commands.
+19. **Use --wait for blocking source adds** - When adding sources before querying, use `nlm source add ... --wait` to block until processing completes. This ensures the source is ready for queries.
+20. **Export to Google Docs/Sheets** - Reports can be exported to Google Docs, Data Tables to Google Sheets. Use `nlm export docs/sheets <notebook> <artifact-id>`.
 """
 
 
